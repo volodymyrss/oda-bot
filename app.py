@@ -70,10 +70,12 @@ def poll_github_events(ctx, source, forget):
         events = r.json()
 
         n_new_push_events = 0
+        new_last_event_id = last_event_id
 
         for event in events:
             if int(event['id']) > last_event_id:
-                logger.info("new event: %s %s %s %s", event['repo']['name'], event['type'], event['payload'].get('ref', None), event['created_at'])
+                new_last_event_id = int(event['id'])
+                logger.info("new event %s: %s %s %s %s", event['id'], event['repo']['name'], event['type'], event['payload'].get('ref', None), event['created_at'])
                 if event['type'] == 'PushEvent' and event['payload']['ref'] in ['refs/heads/master', 'refs/heads/main'] and \
                    ('dispatcher' in event['repo']['name'] or 'oda_api' in event['repo']['name'] or 'oda_api' in event['repo']['name']):
                     n_new_push_events += 1
@@ -82,7 +84,7 @@ def poll_github_events(ctx, source, forget):
             logger.info("got %s new push events, will update")
             ctx.invoke(update_dispatcher_chart)
 
-        new_last_event_id = int(events[0]['id'])
+        logger.debug('returned last event ID %s', last_event_id)
 
         if new_last_event_id > last_event_id:
             yaml.dump({source: dict(last_event_id=new_last_event_id)}, open('oda-bot-runtime.yaml', "w"))
