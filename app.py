@@ -1,0 +1,78 @@
+import time
+import tempfile
+import click
+import subprocess
+import logging
+from click.core import Context
+import requests
+
+logger = logging.getLogger()
+
+@click.group()
+def cli():
+    logging.basicConfig(level='INFO')
+
+
+@cli.command()
+@click.option('--branch', default="master")
+def update_dispatcher_chart(branch):    
+    with tempfile.TemporaryDirectory() as dispatcher_chart_dir:
+        subprocess.check_call([
+            "git", "clone", 
+            "git@gitlab.astro.unige.ch:oda/dispatcher/dispatcher-chart.git",
+            dispatcher_chart_dir,
+            "--recurse-submodules",
+            "--depth", "1", #?
+        ])
+
+        try:
+            subprocess.check_call([
+                "make", "-C", dispatcher_chart_dir, "update", branch
+            ])
+            subprocess.check_call([
+                "git", "push", "origin", branch
+            ])
+        except subprocess.CalledProcessError as e:
+            logger.warning('can not update (maybe no updates available?): %s', e)
+
+
+@cli.command()
+@click.option('--source', default="orgs/oda-hub")
+@click.pass_context
+def poll_github_events(ctx, source):
+    min_poll_interval_s = 5
+    poll_interval_s = 60
+    last_event_id = 0
+    while True:
+        r = requests.get(f'https://api.github.com/{source}/events')
+        
+        if int(r.headers['X-RateLimit-Remaining']) > 0:
+            poll_interval_s = (int(r.headers['X-RateLimit-Reset']) - time.time()) / int(r.headers['X-RateLimit-Remaining'])
+            logger.info('max average poll interval %.2f s', poll_interval_s)
+            poll_interval_s = max(min_poll_interval_s, poll_interval_s)            
+        else:
+            logger.warning('rate limit exceeded! %d', int(r.headers['X-RateLimit-Remaining']))
+            poll_interval_s = (int(r.headers['X-RateLimit-Reset']) - time.time())
+
+        events = r.json()
+
+        n_new_push_events = 0
+
+        for event in events:
+            if int(event['id']) > last_event_id:
+                logger.info("new event: %s %s %s", event['repo']['name'], event['type'], event['created_at'])
+                if event['type'] == 'PushEvent':
+                    n_new_push_events += 1
+
+        if n_new_push_events > 0:
+            logger.info("got %s new push events, will update")
+            ctx.invoke(update_dispatcher_chart)
+
+        last_event_id = int(events[0]['id'])
+
+        logger.info('last event ID %s', last_event_id)
+
+        time.sleep(min_poll_interval_s)            
+
+if __name__ == "__main__":
+    cli()
