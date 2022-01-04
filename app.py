@@ -1,4 +1,5 @@
 import time
+import yaml
 import tempfile
 import click
 import subprocess
@@ -38,11 +39,23 @@ def update_dispatcher_chart(branch):
 
 @cli.command()
 @click.option('--source', default="orgs/oda-hub")
+@click.option('--forget', is_flag=True, default=False)
 @click.pass_context
-def poll_github_events(ctx, source):
+def poll_github_events(ctx, source, forget):
     min_poll_interval_s = 5
     poll_interval_s = 60
-    last_event_id = 0
+
+    try:
+        last_event_id = yaml.safe_load(open('oda-bot-runtime.yaml'))[source]['last_event_id']
+        logger.info('found saved last event record %s', last_event_id)
+    except:
+        logger.warning('no saved last event record')
+        last_event_id = 0
+
+    if forget:
+        logger.warning('discarding last event record')
+        last_event_id = 0
+
     while True:
         r = requests.get(f'https://api.github.com/{source}/events')
         
@@ -60,18 +73,22 @@ def poll_github_events(ctx, source):
 
         for event in events:
             if int(event['id']) > last_event_id:
-                logger.info("new event: %s %s %s", event['repo']['name'], event['type'], event['created_at'])
-                if event['type'] == 'PushEvent':
+                logger.info("new event: %s %s %s %s", event['repo']['name'], event['type'], event['payload'].get('ref', None), event['created_at'])
+                if event['type'] == 'PushEvent' and event['payload']['ref'] in ['refs/heads/master', 'refs/heads/main'] and \
+                   ('dispatcher' in event['repo']['name'] or 'oda_api' in event['repo']['name'] or 'oda_api' in event['repo']['name']):
                     n_new_push_events += 1
 
         if n_new_push_events > 0:
             logger.info("got %s new push events, will update")
             ctx.invoke(update_dispatcher_chart)
 
-        last_event_id = int(events[0]['id'])
+        new_last_event_id = int(events[0]['id'])
 
-        logger.info('last event ID %s', last_event_id)
-
+        if new_last_event_id > last_event_id:
+            yaml.dump({source: dict(last_event_id=new_last_event_id)}, open('oda-bot-runtime.yaml', "w"))
+            last_event_id = new_last_event_id
+            logger.info('new last event ID %s', last_event_id)
+        
         time.sleep(min_poll_interval_s)            
 
 if __name__ == "__main__":
