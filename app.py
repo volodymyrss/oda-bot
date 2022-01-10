@@ -28,7 +28,7 @@ def update_dispatcher_chart(branch):
 
         try:
             subprocess.check_call([
-                "make", "-C", dispatcher_chart_dir, "update", branch
+                "make", "-C", dispatcher_chart_dir, "update"
             ])
             subprocess.check_call([
                 "git", "push", "origin", branch
@@ -57,7 +57,12 @@ def poll_github_events(ctx, source, forget):
         last_event_id = 0
 
     while True:
-        r = requests.get(f'https://api.github.com/{source}/events')
+        try:
+            r = requests.get(f'https://api.github.com/{source}/events')
+        except Exception as e:
+            logger.warning("problem with connection! sleeping %s s", min_poll_interval_s)
+            time.sleep(min_poll_interval_s)
+            continue
         
         if int(r.headers['X-RateLimit-Remaining']) > 0:
             poll_interval_s = (int(r.headers['X-RateLimit-Reset']) - time.time()) / int(r.headers['X-RateLimit-Remaining'])
@@ -74,7 +79,7 @@ def poll_github_events(ctx, source, forget):
 
         for event in events:
             if int(event['id']) > last_event_id:
-                new_last_event_id = int(event['id'])
+                new_last_event_id = max(int(event['id']), new_last_event_id)
                 logger.info("new event %s: %s %s %s %s", event['id'], event['repo']['name'], event['type'], event['payload'].get('ref', None), event['created_at'])
                 if event['type'] == 'PushEvent' and event['payload']['ref'] in ['refs/heads/master', 'refs/heads/main'] and \
                    ('dispatcher' in event['repo']['name'] or 'oda_api' in event['repo']['name'] or 'oda_api' in event['repo']['name']):
