@@ -1,9 +1,9 @@
+import logging
 import time
 import yaml
 import tempfile
 import click
 import subprocess
-import logging
 from click.core import Context
 import requests
 
@@ -11,7 +11,11 @@ logger = logging.getLogger()
 
 @click.group()
 def cli():
-    logging.basicConfig(level='INFO')
+    logging.basicConfig(
+        level=logging.INFO,
+        format='\033[36m%(asctime)s %(levelname)s %(module)s\033[0m  %(message)s',
+    )
+    logger.info("default logging level INFO")
 
 
 @cli.command()
