@@ -1,0 +1,11 @@
+[Unit]
+Description= ODA bot
+After=NetworkManager.service
+
+[Service]
+Type=simple 
+WorkingDirectory=%h/oda-bot
+ExecStart=%h/oda-bot/app.sh
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,9 @@
+
+# Ignore dynaconf secret files
+.secrets.*
+
+
+.vscode
+
+oda-bot-runtime.yaml
+__pycache__

@@ -1,0 +1,16 @@
+[components.frontend]
+
+triggers = [
+    ".*frontend.*",
+    ".*drupal.*",
+    ".*astrooda.*",
+]
+
+
+[components.dispatcher]
+
+triggers = [
+    ".*oda_api.*",
+    ".*dispatcher.*",
+]
+
