@@ -1,6 +1,7 @@
 #!/usr/bin/python
 
 import logging
+import os
 import re
 import time
 import yaml
@@ -23,7 +24,7 @@ from dynaconf import Dynaconf
 @click.pass_obj
 def cli(obj):
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG,
         format='\033[36m%(asctime)s %(levelname)s %(module)s\033[0m  %(message)s',
     )
     logger.info("default logging level INFO")
@@ -49,14 +50,19 @@ def update_chart(component, branch):
             "--recurse-submodules",
             "--depth", "1", #?
         ])
-        subprocess.check_call([
-            "git", "config", "commit.gpgsign", "false"
-            ])
+        # subprocess.check_call([
+        #     "git", "config", "commit.gpgsign", "false"
+        #     ])
 
         try:
             r = subprocess.check_call([
-                "make", "-C", chart_dir, "update"
-            ])
+                    "make", "-C", chart_dir, "update"
+                ],
+                env={**os.environ, 
+                     'GIT_CONFIG_COUNT': '1', 
+                     'GIT_CONFIG_KEY_0': 'commit.gpgsign',
+                     'GIT_CONFIG_VALUE_0': 'false'}
+            )
             logger.error('\033[32msucceeded update (next to commit): %s\033[0m', r)
             r = subprocess.check_call([
                 "git", "push", "origin", branch
@@ -73,6 +79,8 @@ def update_chart(component, branch):
 def poll_github_events(obj, ctx, source, forget):
     min_poll_interval_s = 5
     poll_interval_s = 60
+        
+    logger.info('staring oda-bot')
 
     try:
         last_event_id = yaml.safe_load(open('oda-bot-runtime.yaml'))[source]['last_event_id']
