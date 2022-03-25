@@ -14,6 +14,7 @@ import dynaconf
 
 logger = logging.getLogger()
 
+import logging_tree
 
 from dynaconf import Dynaconf
 
