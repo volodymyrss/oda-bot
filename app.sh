@@ -2,4 +2,4 @@
 
 source $HOME/miniconda-recent/bin/activate
 
-python app.py poll-github-events
+python /home/savchenk/oda-bot/odabot/__init__.py poll-github-events
