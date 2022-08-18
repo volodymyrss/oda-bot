@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+import json
 import logging
 import os
 import re
@@ -11,6 +12,12 @@ import subprocess
 from click.core import Context
 import requests
 import dynaconf
+from dateutil import parser
+from datetime import datetime
+
+import rdflib
+
+from nb2workflow.deploy import deploy
 
 logger = logging.getLogger()
 
@@ -22,10 +29,11 @@ from dynaconf import Dynaconf
 # `settings_files` = Load this files in the order.
 
 @click.group()
+@click.option('--debug', is_flag=True)
 @click.pass_obj
-def cli(obj):
+def cli(obj, debug):
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=logging.DEBUG if debug else logging.INFO,
         format='\033[36m%(asctime)s %(levelname)s %(module)s\033[0m  %(message)s',
     )
     logger.info("default logging level INFO")
@@ -151,6 +159,72 @@ def poll_github_events(obj, ctx, source, forget):
             logger.info('new last event ID %s', last_event_id)
         
         time.sleep(min_poll_interval_s)            
+
+@cli.command()
+@click.option("--dry-run", is_flag=True)
+def update_workflows(dry_run):
+    import odakb
+    # TODO: config
+
+    try:
+        oda_bot_runtime = yaml.safe_load(open('oda-bot-runtime.yaml'))
+    except FileNotFoundError:
+        oda_bot_runtime = {}
+
+    if "deployed_workflows" not in oda_bot_runtime:
+        oda_bot_runtime["deployed_workflows"] = {}
+
+    deployed_workflows = oda_bot_runtime["deployed_workflows"]
+
+    for project in requests.get('https://renkulab.io/gitlab/api/v4/groups/5606/projects?include_subgroups=yes').json():
+        last_activity_time = parser.parse(project['last_activity_at'])
+        age = (time.time() - last_activity_time.timestamp())/24/3600
+
+        logger.info("%20s %30s %10g ago %s", project['name'], last_activity_time, age, project['http_url_to_repo'])
+        logger.info("%20s", project['topics'])
+        logger.debug("%s", json.dumps(project))
+
+        if 'live-workflow' in project['topics']:
+            saved_last_activity_timestamp = deployed_workflows.get(project['http_url_to_repo'], {}).get('last_activity_timestamp', 0)
+
+            if last_activity_time.timestamp() <= saved_last_activity_timestamp:
+                logger.info("no need to deploy this workflow")
+            else:
+                if dry_run:
+                    logger.info("would deploy this workflow")
+                else:
+                    logger.info("will deploy this workflow")
+                    deployment_namespace = "oda-staging"
+                    deployment_name = deploy(project['http_url_to_repo'], project['name'] + '-workflow', namespace=deployment_namespace)
+                    odakb.sparql.insert(f'''
+                        {rdflib.URIRef(project['http_url_to_repo']).n3()} a oda:WorkflowService;
+                                                                        oda:last_activity_timestamp {last_activity_time.timestamp()};
+                                                                        oda:last_deployed_timestamp {datetime.now().timestamp()};
+                                                                        oda:service_name "{project['name']}";
+                                                                        oda:deployment_namespace "{deployment_namespace}";
+                                                                        oda:deployment_name "{deployment_name}" .  
+                    ''')
+                    deployed_workflows[project['http_url_to_repo']] = {'last_activity_timestamp': last_activity_time.timestamp()}
+    
+    yaml.dump(oda_bot_runtime, open('oda-bot-runtime.yaml', "w"))
+
+
+@cli.command()
+def verify_workflows():
+    import odakb
+    import oda_api.api
+    api = oda_api.api.DispatcherAPI(url="https://dispatcher-staging.obsuks1.unige.ch")
+    logger.info(api.get_instruments_list())
+
+    for r in odakb.sparql.construct('?w a oda:WorkflowService; ?b ?c', jsonld=True):        
+        logger.info("%s: %s", r['@id'], json.dumps(r, indent=4))
+        
+        api.get_instrument_description(r["http://odahub.io/ontology#service_name"][0]['@value'])
+        
+
+#TODO:  test service status and dispatcher status
+# oda-api -u https://dispatcher-staging.obsuks1.unige.ch get -i cta-example
+
 
 if __name__ == "__main__":
     cli(obj={})
