@@ -162,51 +162,55 @@ def poll_github_events(obj, ctx, source, forget):
 
 @cli.command()
 @click.option("--dry-run", is_flag=True)
-def update_workflows(dry_run):
+@click.option("--loop", is_flag=True)
+def update_workflows(dry_run, loop):
     import odakb
     # TODO: config
 
-    try:
-        oda_bot_runtime = yaml.safe_load(open('oda-bot-runtime.yaml'))
-    except FileNotFoundError:
-        oda_bot_runtime = {}
+    while loop:
+        try:
+            oda_bot_runtime = yaml.safe_load(open('oda-bot-runtime.yaml'))
+        except FileNotFoundError:
+            oda_bot_runtime = {}
 
-    if "deployed_workflows" not in oda_bot_runtime:
-        oda_bot_runtime["deployed_workflows"] = {}
+        if "deployed_workflows" not in oda_bot_runtime:
+            oda_bot_runtime["deployed_workflows"] = {}
 
-    deployed_workflows = oda_bot_runtime["deployed_workflows"]
+        deployed_workflows = oda_bot_runtime["deployed_workflows"]
 
-    for project in requests.get('https://renkulab.io/gitlab/api/v4/groups/5606/projects?include_subgroups=yes').json():
-        last_activity_time = parser.parse(project['last_activity_at'])
-        age = (time.time() - last_activity_time.timestamp())/24/3600
+        for project in requests.get('https://renkulab.io/gitlab/api/v4/groups/5606/projects?include_subgroups=yes').json():
+            last_activity_time = parser.parse(project['last_activity_at'])
+            age = (time.time() - last_activity_time.timestamp())/24/3600
 
-        logger.info("%20s %30s %10g ago %s", project['name'], last_activity_time, age, project['http_url_to_repo'])
-        logger.info("%20s", project['topics'])
-        logger.debug("%s", json.dumps(project))
+            logger.info("%20s %30s %10g ago %s", project['name'], last_activity_time, age, project['http_url_to_repo'])
+            logger.info("%20s", project['topics'])
+            logger.debug("%s", json.dumps(project))
 
-        if 'live-workflow' in project['topics']:
-            saved_last_activity_timestamp = deployed_workflows.get(project['http_url_to_repo'], {}).get('last_activity_timestamp', 0)
+            if 'live-workflow' in project['topics']:
+                saved_last_activity_timestamp = deployed_workflows.get(project['http_url_to_repo'], {}).get('last_activity_timestamp', 0)
 
-            if last_activity_time.timestamp() <= saved_last_activity_timestamp:
-                logger.info("no need to deploy this workflow")
-            else:
-                if dry_run:
-                    logger.info("would deploy this workflow")
+                if last_activity_time.timestamp() <= saved_last_activity_timestamp:
+                    logger.info("no need to deploy this workflow")
                 else:
-                    logger.info("will deploy this workflow")
-                    deployment_namespace = "oda-staging"
-                    deployment_name = deploy(project['http_url_to_repo'], project['name'] + '-workflow', namespace=deployment_namespace)
-                    odakb.sparql.insert(f'''
-                        {rdflib.URIRef(project['http_url_to_repo']).n3()} a oda:WorkflowService;
-                                                                        oda:last_activity_timestamp {last_activity_time.timestamp()};
-                                                                        oda:last_deployed_timestamp {datetime.now().timestamp()};
-                                                                        oda:service_name "{project['name']}";
-                                                                        oda:deployment_namespace "{deployment_namespace}";
-                                                                        oda:deployment_name "{deployment_name}" .  
-                    ''')
-                    deployed_workflows[project['http_url_to_repo']] = {'last_activity_timestamp': last_activity_time.timestamp()}
-    
-    yaml.dump(oda_bot_runtime, open('oda-bot-runtime.yaml', "w"))
+                    if dry_run:
+                        logger.info("would deploy this workflow")
+                    else:
+                        logger.info("will deploy this workflow")
+                        deployment_namespace = "oda-staging"
+                        deployment_name = deploy(project['http_url_to_repo'], project['name'] + '-workflow', namespace=deployment_namespace)
+                        odakb.sparql.insert(f'''
+                            {rdflib.URIRef(project['http_url_to_repo']).n3()} a oda:WorkflowService;
+                                                                            oda:last_activity_timestamp {last_activity_time.timestamp()};
+                                                                            oda:last_deployed_timestamp {datetime.now().timestamp()};
+                                                                            oda:service_name "{project['name']}";
+                                                                            oda:deployment_namespace "{deployment_namespace}";
+                                                                            oda:deployment_name "{deployment_name}" .  
+                        ''')
+                        deployed_workflows[project['http_url_to_repo']] = {'last_activity_timestamp': last_activity_time.timestamp()}
+        
+        yaml.dump(oda_bot_runtime, open('oda-bot-runtime.yaml', "w"))
+        if loop:
+            time.sleep(60)
 
 
 @cli.command()
