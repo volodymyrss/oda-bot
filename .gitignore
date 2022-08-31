@@ -8,3 +8,10 @@
 oda-bot-runtime.yaml
 __pycache__
 data
+.nb2workflow
+build
+
+*.egg-info
+
+oda-bot-runtime-workflows.yaml
+debug.ttl

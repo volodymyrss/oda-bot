@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 install_req = [
 ]
@@ -7,12 +7,12 @@ test_req = [
 ]
 
 
-setup(name='cdci_data_analysis',
-      version=__version__,
+setup(name='oda-bot',
+      version="0.1.0",
       description='',
       author='V.S.',
       author_email='',
-      packages=packs,
+      packages=find_packages(),
       include_package_data=True,
       install_requires=install_req,
       extras_require={

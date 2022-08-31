@@ -28,6 +28,21 @@ from dynaconf import Dynaconf
 # `envvar_prefix` = export envvars with `export DYNACONF_FOO=bar`.
 # `settings_files` = Load this files in the order.
 
+
+def send_email(_to, subject, text):
+    r = requests.post(
+        "https://api.eu.mailgun.net/v3/in.odahub.io/messages",
+        data={
+            "from": 'ODA Workflow Bot <oda-bot@in.odahub.io>',
+            "to": _to,
+            "subject": subject,
+            "text": text
+        },
+        auth=('api', open(os.path.join(os.getenv('HOME', '/'), '.mailgun')).read().strip())
+    )    
+    logger.info('sending email: %s %s', r, r.text)
+    
+
 @click.group()
 @click.option('--debug', is_flag=True)
 @click.pass_obj
@@ -46,7 +61,6 @@ def cli(obj, debug):
             os.path.join(os.getenv('HOME'), '.config/oda/bot/settings.toml')
         ],
     )
-
 
     logger.info("components: %s", obj['settings'].components)
 
@@ -162,14 +176,14 @@ def poll_github_events(obj, ctx, source, forget):
 
 @cli.command()
 @click.option("--dry-run", is_flag=True)
-@click.option("--loop", is_flag=True)
+@click.option("--loop", default=0)
 def update_workflows(dry_run, loop):
     import odakb
     # TODO: config
 
-    while loop:
+    while True:
         try:
-            oda_bot_runtime = yaml.safe_load(open('oda-bot-runtime.yaml'))
+            oda_bot_runtime = yaml.safe_load(open('oda-bot-runtime-workflows.yaml'))
         except FileNotFoundError:
             oda_bot_runtime = {}
 
@@ -178,18 +192,24 @@ def update_workflows(dry_run, loop):
 
         deployed_workflows = oda_bot_runtime["deployed_workflows"]
 
-        for project in requests.get('https://renkulab.io/gitlab/api/v4/groups/5606/projects?include_subgroups=yes').json():
-            last_activity_time = parser.parse(project['last_activity_at'])
-            age = (time.time() - last_activity_time.timestamp())/24/3600
+        updated = False
 
-            logger.info("%20s %30s %10g ago %s", project['name'], last_activity_time, age, project['http_url_to_repo'])
+        for project in requests.get('https://renkulab.io/gitlab/api/v4/groups/5606/projects?include_subgroups=yes').json():            
+            logger.info("%20s  ago %s", project['name'], project['http_url_to_repo'])
             logger.info("%20s", project['topics'])
             logger.debug("%s", json.dumps(project))
 
             if 'live-workflow' in project['topics']:
-                saved_last_activity_timestamp = deployed_workflows.get(project['http_url_to_repo'], {}).get('last_activity_timestamp', 0)
+                last_commit = requests.get(f'https://renkulab.io/gitlab/api/v4/projects/{project["id"]}/repository/commits?per_page=1&page=1').json()[0]
+                last_commit_created_at = last_commit['created_at']
 
-                if last_activity_time.timestamp() <= saved_last_activity_timestamp:
+                logger.info('last_commit %s', last_commit )
+                
+                saved_last_commit_created_at = deployed_workflows.get(project['http_url_to_repo'], {}).get('last_commit_created_at', 0)
+
+                logger.info('last_commit_created_at %s saved_last_commit_created_at %s', last_commit_created_at, saved_last_commit_created_at )
+
+                if last_commit_created_at == saved_last_commit_created_at:
                     logger.info("no need to deploy this workflow")
                 else:
                     if dry_run:
@@ -197,20 +217,66 @@ def update_workflows(dry_run, loop):
                     else:
                         logger.info("will deploy this workflow")
                         deployment_namespace = "oda-staging"
-                        deployment_name = deploy(project['http_url_to_repo'], project['name'] + '-workflow', namespace=deployment_namespace)
-                        odakb.sparql.insert(f'''
-                            {rdflib.URIRef(project['http_url_to_repo']).n3()} a oda:WorkflowService;
-                                                                            oda:last_activity_timestamp {last_activity_time.timestamp()};
-                                                                            oda:last_deployed_timestamp {datetime.now().timestamp()};
-                                                                            oda:service_name "{project['name']}";
-                                                                            oda:deployment_namespace "{deployment_namespace}";
-                                                                            oda:deployment_name "{deployment_name}" .  
-                        ''')
-                        deployed_workflows[project['http_url_to_repo']] = {'last_activity_timestamp': last_activity_time.timestamp()}
+
+                        try:
+                            deployment_info = deploy(project['http_url_to_repo'], project['name'] + '-workflow', namespace=deployment_namespace)
+                        except Exception as e:
+                            send_email([
+                                            "vladimir.savchenko@gmail.com", 
+                                            deployment_info['author'],
+                                            last_commit['committer_email']
+                                        ], 
+                                    f"[ODA-Workflow-Bot] unfortunately did NOT manage to deploy {project['name']}!", 
+                                    ("Dear MMODA Workflow Developer\n\n"
+                                        "ODA-Workflow-Bot just tried to deploy your workflow following some change, but did not manage!\n\n"
+                                        "It is possible it did not pass a test. In the future, we will provide here some details.\n"
+                                        "Meanwhile, please me sure to follow the manual https://odahub.io/docs/guide-development and ask us at will!\n\n"
+                                        "\n\nSincerely, ODA Bot"
+                                        ))
+                            
+                        else:
+
+                            odakb.sparql.insert(f'''
+                                {rdflib.URIRef(project['http_url_to_repo']).n3()} a oda:WorkflowService;
+                                                                                oda:last_activity_timestamp "{last_commit_created_at}";
+                                                                                oda:last_deployed_timestamp "{datetime.now().timestamp()}";
+                                                                                oda:service_name "{project['name']}";
+                                                                                oda:deployment_namespace "{deployment_namespace}";
+                                                                                oda:deployment_name "{deployment_info['deployment_name']}" .  
+                            ''')
+                            deployed_workflows[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at}
+
+                            # TODO: add details from workflow change, diff, signateu
+                            # TODO: in plugin, deploy on request
+
+                            send_email([
+                                            "vladimir.savchenko@gmail.com", 
+                                            deployment_info['author'],
+                                            last_commit['committer_email']
+                                        ], 
+                                    f"[ODA-Workflow-Bot] deployed {project['name']} to {deployment_namespace}", 
+                                    ("Dear MMODA Workflow Developer\n\n"
+                                        "ODA-Workflow-Bot just deployed your workflow, and passed basic validation.\n"
+                                        "Please find below some details on the inferred workflow properties, "
+                                        "and check if the parameters and the default outputs are interpretted as you intended them to be.\n\n"
+                                        f"{json.dumps(deployment_info, indent=4)}\n\n"
+                                        "You can now try using accessing your workflow, see https://odahub.io/docs/guide-development/#optional-try-a-test-service\n\n"
+                                        "\n\nSincerely, ODA Bot"
+                                        ))
+                            
+                            updated = True
         
-        yaml.dump(oda_bot_runtime, open('oda-bot-runtime.yaml', "w"))
-        if loop:
-            time.sleep(60)
+        if updated:
+            with open('oda-bot-runtime-workflows.yaml', "w") as f:
+                yaml.dump(oda_bot_runtime, f)
+
+            subprocess.check_output(["kubectl", "delete", "pods", "-n", "oda-staging", "-l", "app.kubernetes.io/name==dispatcher"])
+
+        if loop > 0:
+            logger.info("sleeping %s", loop)
+            time.sleep(loop)
+        else:
+            break
 
 
 @cli.command()
