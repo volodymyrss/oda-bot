@@ -125,7 +125,10 @@ def poll_github_events(obj, ctx, source, forget):
 
     while True:
         try:
+            url = f'https://api.github.com/{source}/events'
+            logger.info("requesting %s", url)
             r = requests.get(f'https://api.github.com/{source}/events')
+            print(r, r.text)
         except Exception as e:
             logger.warning("problem with connection! sleeping %s s", min_poll_interval_s)
             time.sleep(min_poll_interval_s)
@@ -138,13 +141,13 @@ def poll_github_events(obj, ctx, source, forget):
         else:
             poll_interval_s = (int(r.headers['X-RateLimit-Reset']) - time.time())
             logger.warning('rate limit exceeded! %d reset in %d', int(r.headers['X-RateLimit-Remaining']), poll_interval_s)
-            time.sleep(poll_interval_s)
+            time.sleep(max(poll_interval_s, 10))
             continue
 
         
         if r.status_code != 200:
             logger.error(r.text)
-            time.sleep(10)
+            time.sleep(max(poll_interval_s, 10))
             continue
 
         events = r.json()
@@ -175,7 +178,7 @@ def poll_github_events(obj, ctx, source, forget):
             last_event_id = new_last_event_id
             logger.info('new last event ID %s', last_event_id)
         
-        time.sleep(min_poll_interval_s)            
+        time.sleep(poll_interval_s)            
 
 
 def update_workflow(last_commit, last_commit_created_at, project):
@@ -207,6 +210,7 @@ def update_workflow(last_commit, last_commit_created_at, project):
         try:
             deployment_info = deploy(project['http_url_to_repo'], project['name'] + '-workflow', namespace=deployment_namespace)
         except Exception as e:
+            logger.warning('exception deploying! %s\n%s\%s', e, e.output.decode(), e.stderr.decode())
             send_email([
                             "vladimir.savchenko@gmail.com", 
                             # deployment_info['author'],
@@ -218,6 +222,7 @@ def update_workflow(last_commit, last_commit_created_at, project):
                         "It is possible it did not pass a test. In the future, we will provide here some details.\n"
                         "Meanwhile, please me sure to follow the manual https://odahub.io/docs/guide-development and ask us at will!\n\n"
                         "\n\nSincerely, ODA Bot"
+                        f"\n\nthis exception dump may be helpful: {repr(e)}\n\n{getattr(e, 'stderr', '').decode()}"
                         ))
 
             deployed_workflows[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at, 'last_deployment_status': 'failed'}
