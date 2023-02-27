@@ -1,6 +1,14 @@
 from setuptools import setup, find_packages
 
 install_req = [
+    'oda-knowledge-base',
+    'pyyaml',
+    'click',
+    'requests',
+    'dynaconf',
+    'rdflib',
+    'nb2workflow',
+    'oda_api'    
 ]
 
 test_req = [

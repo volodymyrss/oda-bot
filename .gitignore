@@ -2,7 +2,7 @@
 # Ignore dynaconf secret files
 .secrets.*
 
-
+.venv
 .vscode
 
 oda-bot-runtime.yaml

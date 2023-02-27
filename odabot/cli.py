@@ -10,20 +10,15 @@ import yaml
 import tempfile
 import click
 import subprocess
-from click.core import Context
 import requests
-import dynaconf
-from dateutil import parser
 from datetime import datetime
 
 import rdflib
 
 from nb2workflow.deploy import deploy
-from nb2workflow.validate import validate, patch_add_tests, patch_normalized_uris
+#from nb2workflow.validate import validate, patch_add_tests, patch_normalized_uris
 
 logger = logging.getLogger()
-
-import logging_tree
 
 from dynaconf import Dynaconf
 
