@@ -8,7 +8,8 @@ install_req = [
     'dynaconf',
     'rdflib',
     'nb2workflow',
-    'oda_api'    
+    'oda_api',
+    'mmoda_tab_generator'
 ]
 
 test_req = [

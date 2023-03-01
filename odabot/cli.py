@@ -17,6 +17,7 @@ import rdflib
 
 from nb2workflow.deploy import deploy
 #from nb2workflow.validate import validate, patch_add_tests, patch_normalized_uris
+from mmoda_tab_generator.tab_generator import MMODATabGenerator
 
 logger = logging.getLogger()
 
@@ -25,6 +26,8 @@ from dynaconf import Dynaconf
 # `envvar_prefix` = export envvars with `export DYNACONF_FOO=bar`.
 # `settings_files` = Load this files in the order.
 
+# TODO: it should be configurable
+dispatcher_url = "https://dispatcher-staging.obsuks1.unige.ch"
 
 def send_email(_to, subject, text):
     r = requests.post(
@@ -252,7 +255,20 @@ def update_workflow(last_commit, last_commit_created_at, project):
                         ))
 
     return deployed_workflows            
-       
+
+def generate_frontend_tab(project):
+    
+    # TODO: make configurable; consider it to be on k8s volume
+    frontend_instruments_dir = '/path/to/dir'
+    
+    generator = MMODATabGenerator(dispatcher_url)
+    
+    generator.generate(instrument_name = project['name'], 
+                       instruments_dir_path = frontend_instruments_dir,
+                       frontend_name = project['name'], 
+                       roles = '' if project.get('workflow_status') == "production" else 'developer',
+                       form_dispatcher_url = 'dispatch-data/run_analysis',
+                       weight = 200) # TODO: how to guess the best weight?
 
 
 @cli.command()
@@ -306,16 +322,29 @@ def update_workflows(dry_run, force, loop, pattern):
                             updated = True    
             
             if updated:
-                logger.info("updated: will recreated dispatcher")
+                # logger.info("updated: will recreated dispatcher")
 
-                with open('oda-bot-runtime-workflows.yaml', "w") as f:
-                    yaml.dump(oda_bot_runtime, f)            
+                # with open('oda-bot-runtime-workflows.yaml', "w") as f:
+                #     yaml.dump(oda_bot_runtime, f)            
 
-                subprocess.check_output(["kubectl", "delete", "pods", "-n", "oda-staging", "-l", "app.kubernetes.io/name==dispatcher"])
+                # subprocess.check_output(["kubectl", "delete", "pods", "-n", "oda-staging", "-l", "app.kubernetes.io/name==dispatcher"])
 
+                logger.info("updated: will reload nb2workflow-plugin")
+                res = requests.get(f"{dispatcher_url.strip('/')}/reload-plugin/dispatcher_plugin_nb2workflow")
+                assert res.status_code == 200
+                
                 # TODO: check live
                 # oda-api -u staging get -i cta-example
 
+                generate_frontend_tab(project)
+                
+                subprocess.check_output(["kubectl", "exec", "-it", 
+                                         "deployments/oda-frontend", 
+                                         "-n", "oda-staging", 
+                                         "--", "bash", "-c", 
+                                         f"'cd /var/www/mmoda; ~/.composer/vendor/bin/drush dre -y mmoda_{project['name']}'"])
+                # TODO: is frontend actually there? Better to be configurable
+                
             if loop > 0:
                 logger.info("sleeping %s", loop)
                 time.sleep(loop)
@@ -330,7 +359,7 @@ def update_workflows(dry_run, force, loop, pattern):
 def verify_workflows():
     import odakb
     import oda_api.api
-    api = oda_api.api.DispatcherAPI(url="https://dispatcher-staging.obsuks1.unige.ch")
+    api = oda_api.api.DispatcherAPI(url=dispatcher_url)
     logger.info(api.get_instruments_list())
 
     for r in odakb.sparql.construct('?w a oda:WorkflowService; ?b ?c', jsonld=True):        
