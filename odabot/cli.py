@@ -1,7 +1,6 @@
 #!/usr/bin/python
 
 import json
-import odakb
 import logging
 import os
 import re
@@ -12,6 +11,7 @@ import click
 import subprocess
 import requests
 from datetime import datetime
+import sys 
 
 import rdflib
 
@@ -26,28 +26,46 @@ from dynaconf import Dynaconf
 # `envvar_prefix` = export envvars with `export DYNACONF_FOO=bar`.
 # `settings_files` = Load this files in the order.
 
-# TODO: it should be configurable
-dispatcher_url = "https://dispatcher-staging.obsuks1.unige.ch"
-
 def send_email(_to, subject, text):
-    r = requests.post(
-        "https://api.eu.mailgun.net/v3/in.odahub.io/messages",
-        data={
-            "from": 'ODA Workflow Bot <oda-bot@in.odahub.io>',
-            "to": _to,
-            "subject": subject,
-            "text": text
-        },
-        auth=('api', open(os.path.join(os.getenv('HOME', '/'), '.mailgun')).read().strip())
-    )    
-    logger.info('sending email: %s %s', r, r.text)
-    
+    try:
+        if os.getenv('EMAIL_SMTP_SERVER'):
+            #TODO: remove 
+            _to = ["speleoden@gmail.com"]
+            
+            import smtplib
+            from email.message import EmailMessage
+            
+            msg = EmailMessage()
+            msg['Subject'] = subject
+            msg['From'] = os.getenv('EMAIL_SMTP_USER')
+            msg['To'] = ', '.join(_to)
+            msg.set_content(text)
+            
+            with smtplib.SMTP_SSL(os.getenv('EMAIL_SMTP_SERVER')) as smtp:
+                smtp.login(os.getenv('EMAIL_SMTP_USER'), os.getenv('EMAIL_SMTP_PASSWORD'))
+                smtp.send_message(msg)
+                
+        else:
+            r = requests.post(
+                "https://api.eu.mailgun.net/v3/in.odahub.io/messages",
+                data={
+                    "from": 'ODA Workflow Bot <oda-bot@in.odahub.io>',
+                    "to": _to,
+                    "subject": subject,
+                    "text": text
+                },
+                auth=('api', open(os.path.join(os.getenv('HOME', '/'), '.mailgun')).read().strip())
+            )    
+            logger.info('sending email: %s %s', r, r.text)
+    except Exception as e:
+        logger.error('Exception while sending email: %s', e)    
 
 @click.group()
 @click.option('--debug', is_flag=True)
 @click.pass_obj
 def cli(obj, debug):
     logging.basicConfig(
+        stream = sys.stdout,
         level=logging.DEBUG if debug else logging.INFO,
         format='\033[36m%(asctime)s %(levelname)s %(module)s\033[0m  %(message)s',
     )
@@ -179,11 +197,16 @@ def poll_github_events(obj, ctx, source, forget):
         time.sleep(poll_interval_s)            
 
 
-def update_workflow(last_commit, last_commit_created_at, project):
+def update_workflow(last_commit, 
+                    last_commit_created_at, 
+                    project, 
+                    deployment_namespace, 
+                    sparql_obj, 
+                    container_registry,
+                    dispatcher_deployment):
     deployed_workflows = {}
 
     logger.info("will deploy this workflow")
-    deployment_namespace = "oda-staging"
 
     # validation_results = [v for v in [
     #     validate(project['ssh_url_to_repo'], patch_normalized_uris, gitlab_project=project),        
@@ -206,7 +229,11 @@ def update_workflow(last_commit, last_commit_created_at, project):
                     ))
     else:
         try:
-            deployment_info = deploy(project['http_url_to_repo'], project['name'] + '-workflow', namespace=deployment_namespace)
+            deployment_info = deploy(project['http_url_to_repo'], 
+                                     project['name'] + '-workflow', 
+                                     namespace=deployment_namespace, 
+                                     registry=container_registry,
+                                     check_live_through=dispatcher_deployment)
         except Exception as e:
             logger.warning('exception deploying! %s\n%s\%s', e, e.output.decode(), e.stderr.decode())
             send_email([
@@ -226,7 +253,7 @@ def update_workflow(last_commit, last_commit_created_at, project):
             deployed_workflows[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at, 'last_deployment_status': 'failed'}
             
         else:
-            odakb.sparql.insert(f'''
+            sparql_obj.insert(f'''
                 {rdflib.URIRef(project['http_url_to_repo']).n3()} a oda:WorkflowService;
                                                                 oda:last_activity_timestamp "{last_commit_created_at}";
                                                                 oda:last_deployed_timestamp "{datetime.now().timestamp()}";
@@ -256,28 +283,30 @@ def update_workflow(last_commit, last_commit_created_at, project):
 
     return deployed_workflows            
 
-def generate_frontend_tab(project):
-    
-    # TODO: make configurable; consider it to be on k8s volume
-    frontend_instruments_dir = '/path/to/dir'
-    
-    generator = MMODATabGenerator(dispatcher_url)
-    
-    generator.generate(instrument_name = project['name'], 
-                       instruments_dir_path = frontend_instruments_dir,
-                       frontend_name = project['name'], 
-                       roles = '' if project.get('workflow_status') == "production" else 'developer',
-                       form_dispatcher_url = 'dispatch-data/run_analysis',
-                       weight = 200) # TODO: how to guess the best weight?
-
 
 @cli.command()
 @click.option("--dry-run", is_flag=True)
 @click.option("--loop", default=0)
 @click.option("--force", is_flag=True)
 @click.option("--pattern", default=".*")
-def update_workflows(dry_run, force, loop, pattern):
-    # TODO: config
+@click.pass_obj
+def update_workflows(obj, dry_run, force, loop, pattern):
+    if obj['settings'].get('components.nb2workflow.kb.type', 'odakb') == 'file':
+        from odabot.simplekb import TurtleFileGraph
+        odakb_sparql = TurtleFileGraph(obj['settings'].get('components.nb2workflow.kb.path'))
+    else:
+        import odakb
+        odakb_sparql = odakb.sparql    
+    
+    k8s_namespace = obj['settings'].get('components.nb2workflow.k8s_namespace', 'oda-staging')
+    dispatcher_url = obj['settings'].get('components.nb2workflow.dispatcher.url', 
+                                         "https://dispatcher-staging.obsuks1.unige.ch")
+    dispatcher_deployment = obj['settings'].get('components.nb2workflow.dispatcher.deployment', 
+                                                "oda-dispatcher")
+    container_registry = obj['settings'].get('components.nb2workflow.registry', 'odahub')
+    
+    frontend_instruments_dir = obj['settings'].get('components.nb2workflow.frontend.instruments_dir', None)
+    frontend_deployment = obj['settings'].get('components.nb2workflow.frontend.deployment', None)
 
     while True:
         try:
@@ -318,51 +347,69 @@ def update_workflows(dry_run, force, loop, pattern):
                         if dry_run:
                             logger.info("would deploy this workflow")
                         else:
-                            deployed_workflows.update(update_workflow(last_commit, last_commit_created_at, project))
+                            deployed_workflows.update(update_workflow(last_commit, 
+                                                                      last_commit_created_at, 
+                                                                      project, 
+                                                                      k8s_namespace, 
+                                                                      odakb_sparql, 
+                                                                      container_registry,
+                                                                      dispatcher_deployment))
                             updated = True    
             
             if updated:
-                # logger.info("updated: will recreated dispatcher")
-
-                # with open('oda-bot-runtime-workflows.yaml', "w") as f:
-                #     yaml.dump(oda_bot_runtime, f)            
-
-                # subprocess.check_output(["kubectl", "delete", "pods", "-n", "oda-staging", "-l", "app.kubernetes.io/name==dispatcher"])
-
                 logger.info("updated: will reload nb2workflow-plugin")
                 res = requests.get(f"{dispatcher_url.strip('/')}/reload-plugin/dispatcher_plugin_nb2workflow")
                 assert res.status_code == 200
                 
                 # TODO: check live
                 # oda-api -u staging get -i cta-example
-
-                generate_frontend_tab(project)
+    
+                # TODO: make configurable; consider it to be on k8s volume
                 
-                subprocess.check_output(["kubectl", "exec", "-it", 
-                                         "deployments/oda-frontend", 
-                                         "-n", "oda-staging", 
-                                         "--", "bash", "-c", 
-                                         f"'cd /var/www/mmoda; ~/.composer/vendor/bin/drush dre -y mmoda_{project['name']}'"])
-                # TODO: is frontend actually there? Better to be configurable
-                
-            if loop > 0:
-                logger.info("sleeping %s", loop)
-                time.sleep(loop)
-            else:
-                break
+                if frontend_instruments_dir:
+                    generator = MMODATabGenerator(dispatcher_url)
+                    
+                    generator.generate(instrument_name = project['name'], 
+                                    instruments_dir_path = frontend_instruments_dir,
+                                    frontend_name = project['name'], 
+                                    roles = '' if project.get('workflow_status') == "production" else 'developer',
+                                    form_dispatcher_url = 'dispatch-data/run_analysis',
+                                    weight = 200) # TODO: how to guess the best weight?
+                    
+                    subprocess.check_output(["kubectl", "exec", "-it", 
+                                            f"deployment/{frontend_deployment}", 
+                                            "-n", k8s_namespace, 
+                                            "--", "bash", "-c", 
+                                            f"'cd /var/www/mmoda; ~/.composer/vendor/bin/drush dre -y mmoda_{project['name']}'"])
+        
         except Exception as e:
             logger.error("unexpected exception: %s", e)
-            time.sleep(5)
+        
+        if loop > 0:
+            logger.info("sleeping %s", loop)
+            time.sleep(loop)
+        else:
+            break
 
 
 @cli.command()
-def verify_workflows():
-    import odakb
+@click.pass_obj
+def verify_workflows(obj):
+    if obj['settings'].get('kb.type', 'odakb') == 'file':
+        from .simplekb import TurtleFileGraph
+        odakb_sparql = TurtleFileGraph(obj['settings'].get('kb.path'))
+    else:
+        import odakb
+        odakb_sparql = odakb.sparql    
+    
+    dispatcher_url = obj['settings'].get('components.nb2workflow.dispatcher_url', 
+                                         "https://dispatcher-staging.obsuks1.unige.ch")
+    
     import oda_api.api
     api = oda_api.api.DispatcherAPI(url=dispatcher_url)
     logger.info(api.get_instruments_list())
 
-    for r in odakb.sparql.construct('?w a oda:WorkflowService; ?b ?c', jsonld=True):        
+    for r in odakb_sparql.construct('?w a oda:WorkflowService; ?b ?c', jsonld=True):        
         logger.info("%s: %s", r['@id'], json.dumps(r, indent=4))
         
         api.get_instrument_description(r["http://odahub.io/ontology#service_name"][0]['@value'])
@@ -371,6 +418,8 @@ def verify_workflows():
 #TODO:  test service status and dispatcher status
 # oda-api -u https://dispatcher-staging.obsuks1.unige.ch get -i cta-example
 
+def main():
+    cli(obj={})
 
 if __name__ == "__main__":
-    cli(obj={})
+    main()

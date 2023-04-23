@@ -14,3 +14,11 @@ triggers = [
     ".*dispatcher.*",
 ]
 
+[components.nb2workflow]
+
+k8s_namespace = "oda-staging"
+dispatcher = {url = "https://dispatcher-staging.obsuks1.unige.ch", deployment = "oda-dispatcher"}
+kb = {type = "odakb"}
+frontend = {instruments_dir = "/frontend-instruments/", deployment = "oda-frontend"}
+registry = "odahub"
+
