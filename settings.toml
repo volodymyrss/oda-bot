@@ -21,4 +21,4 @@ dispatcher = {url = "https://dispatcher-staging.obsuks1.unige.ch", deployment = 
 kb = {type = "odakb"}
 frontend = {instruments_dir = "/frontend-instruments/", deployment = "oda-frontend"}
 registry = "odahub"
-
+build_engine = "docker"

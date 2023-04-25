@@ -62,8 +62,9 @@ def send_email(_to, subject, text):
 
 @click.group()
 @click.option('--debug', is_flag=True)
+@click.option('--settings')
 @click.pass_obj
-def cli(obj, debug):
+def cli(obj, debug, settings):
     logging.basicConfig(
         stream = sys.stdout,
         level=logging.DEBUG if debug else logging.INFO,
@@ -72,13 +73,17 @@ def cli(obj, debug):
 
     logger.info("default logging level INFO")
     
+    settings_files=[
+        'settings.toml', 
+        '.secrets.toml',
+        os.path.join(os.getenv('HOME'), '.config/oda/bot/settings.toml')]
+    
+    if settings is not None:
+        settings_files.append(settings)
+    
     obj['settings'] = Dynaconf(
         envvar_prefix="ODABOT",
-        settings_files=[
-            'settings.toml', 
-            '.secrets.toml',
-            os.path.join(os.getenv('HOME'), '.config/oda/bot/settings.toml')
-        ],
+        settings_files=settings_files,
     )
 
     logger.info("components: %s", obj['settings'].components)
@@ -203,7 +208,8 @@ def update_workflow(last_commit,
                     deployment_namespace, 
                     sparql_obj, 
                     container_registry,
-                    dispatcher_deployment):
+                    dispatcher_deployment,
+                    build_engine):
     deployed_workflows = {}
 
     logger.info("will deploy this workflow")
@@ -233,7 +239,9 @@ def update_workflow(last_commit,
                                      project['name'] + '-workflow', 
                                      namespace=deployment_namespace, 
                                      registry=container_registry,
-                                     check_live_through=dispatcher_deployment)
+                                     check_live_through=dispatcher_deployment,
+                                     build_engine=build_engine,
+                                     build_timestamp = True)
         except Exception as e:
             logger.warning('exception deploying! %s\n%s\%s', e, e.output.decode(), e.stderr.decode())
             send_email([
@@ -307,6 +315,8 @@ def update_workflows(obj, dry_run, force, loop, pattern):
     
     frontend_instruments_dir = obj['settings'].get('components.nb2workflow.frontend.instruments_dir', None)
     frontend_deployment = obj['settings'].get('components.nb2workflow.frontend.deployment', None)
+    
+    build_engine = obj['settings'].get('components.nb2workflow.build_engine', 'docker')
 
     while True:
         try:
@@ -353,7 +363,8 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                                       k8s_namespace, 
                                                                       odakb_sparql, 
                                                                       container_registry,
-                                                                      dispatcher_deployment))
+                                                                      dispatcher_deployment,
+                                                                      build_engine))
                             updated = True    
             
             if updated:
