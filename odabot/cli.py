@@ -283,7 +283,7 @@ def update_workflow(last_commit,
                     ("Dear MMODA Workflow Developer\n\n"
                         "ODA-Workflow-Bot just deployed your workflow, and passed basic validation.\n"
                         "Please find below some details on the inferred workflow properties, "
-                        "and check if the parameters and the default outputs are interpretted as you intended them to beЖ.\n\n"
+                        "and check if the parameters and the default outputs are interpretted as you intended them to be.\n\n"
                         f"{json.dumps(deployment_info, indent=4)}\n\n"
                         "You can now try using accessing your workflow, see https://odahub.io/docs/guide-development/#optional-try-a-test-service\n\n"
                         "\n\nSincerely, ODA Bot"
@@ -321,7 +321,10 @@ def update_workflows(obj, dry_run, force, loop, pattern):
     while True:
         try:
             try:
-                oda_bot_runtime = yaml.safe_load(open('oda-bot-runtime-workflows.yaml'))
+                oda_bot_runtime = yaml.safe_load(open('oda-bot-runtime-workflows.yaml')) 
+                # TODO: how this file gets populated? Seems that every new oda-bot start will rebuild all workflows
+                # Probably better to get this info from KG?
+                                
             except FileNotFoundError:
                 oda_bot_runtime = {}
 
@@ -387,7 +390,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                     form_dispatcher_url = 'dispatch-data/run_analysis',
                                     weight = 200) # TODO: how to guess the best weight?
                     
-                    subprocess.check_output(["kubectl", "exec", "-it", 
+                    subprocess.check_output(["kubectl", "exec", #"-it", 
                                             f"deployment/{frontend_deployment}", 
                                             "-n", k8s_namespace, 
                                             "--", "bash", "-c", 
