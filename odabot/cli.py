@@ -303,24 +303,24 @@ def update_workflow(last_commit,
 @click.option("--pattern", default=".*")
 @click.pass_obj
 def update_workflows(obj, dry_run, force, loop, pattern):
-    if obj['settings'].get('components.nb2workflow.kb.type', 'odakb') == 'file':
+    if obj['settings'].get('nb2workflow.kb.type', 'odakb') == 'file':
         from odabot.simplekb import TurtleFileGraph
-        odakb_sparql = TurtleFileGraph(obj['settings'].get('components.nb2workflow.kb.path'))
+        odakb_sparql = TurtleFileGraph(obj['settings'].get('nb2workflow.kb.path'))
     else:
         import odakb
         odakb_sparql = odakb.sparql    
     
-    k8s_namespace = obj['settings'].get('components.nb2workflow.k8s_namespace', 'oda-staging')
-    dispatcher_url = obj['settings'].get('components.nb2workflow.dispatcher.url', 
+    k8s_namespace = obj['settings'].get('nb2workflow.k8s_namespace', 'oda-staging')
+    dispatcher_url = obj['settings'].get('nb2workflow.dispatcher.url', 
                                          "https://dispatcher-staging.obsuks1.unige.ch")
-    dispatcher_deployment = obj['settings'].get('components.nb2workflow.dispatcher.deployment', 
+    dispatcher_deployment = obj['settings'].get('nb2workflow.dispatcher.deployment', 
                                                 "oda-dispatcher")
-    container_registry = obj['settings'].get('components.nb2workflow.registry', 'odahub')
+    container_registry = obj['settings'].get('nb2workflow.registry', 'odahub')
     
-    frontend_instruments_dir = obj['settings'].get('components.nb2workflow.frontend.instruments_dir', None)
-    frontend_deployment = obj['settings'].get('components.nb2workflow.frontend.deployment', None)
+    frontend_instruments_dir = obj['settings'].get('nb2workflow.frontend.instruments_dir', None)
+    frontend_deployment = obj['settings'].get('nb2workflow.frontend.deployment', None)
     
-    build_engine = obj['settings'].get('components.nb2workflow.build_engine', 'docker')
+    build_engine = obj['settings'].get('nb2workflow.build_engine', 'docker')
 
     while True:
         try:
@@ -424,7 +424,7 @@ def verify_workflows(obj):
         import odakb
         odakb_sparql = odakb.sparql    
     
-    dispatcher_url = obj['settings'].get('components.nb2workflow.dispatcher_url', 
+    dispatcher_url = obj['settings'].get('nb2workflow.dispatcher_url', 
                                          "https://dispatcher-staging.obsuks1.unige.ch")
     
     import oda_api.api

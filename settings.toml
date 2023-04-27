@@ -14,7 +14,7 @@ triggers = [
     ".*dispatcher.*",
 ]
 
-[components.nb2workflow]
+[nb2workflow]
 
 k8s_namespace = "oda-staging"
 dispatcher = {url = "https://dispatcher-staging.obsuks1.unige.ch", deployment = "oda-dispatcher"}
