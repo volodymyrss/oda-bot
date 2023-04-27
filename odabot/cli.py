@@ -402,7 +402,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                 f"deployment/{frontend_deployment}", 
                                                 "-n", k8s_namespace, 
                                                 "--", "bash", "-c", 
-                                                f"'cd /var/www/mmoda; ~/.composer/vendor/bin/drush dre -y mmoda_{frontend_name}'"])
+                                                f"cd /var/www/mmoda; ~/.composer/vendor/bin/drush dre -y mmoda_{frontend_name}"])
             
         except Exception as e:
             logger.error("unexpected exception: %s", e)
