@@ -392,7 +392,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                         
                         generator.generate(instrument_name = project['name'], 
                                         instruments_dir_path = frontend_instruments_dir,
-                                        frontend_name = project['name'], 
+                                        frontend_name = project['name'].replace('-', '_').replace(' ', '_'), 
                                         roles = '' if project.get('workflow_status') == "production" else 'developer',
                                         form_dispatcher_url = 'dispatch-data/run_analysis',
                                         weight = 200) # TODO: how to guess the best weight?
