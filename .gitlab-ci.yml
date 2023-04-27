@@ -1,16 +1,16 @@
 docker-build:
   stage: build
 
-  image: docker:stable
+  image: docker:stable-git
   services:
-  - docker:dind
+  - docker:stable-dind
   variables:
-    DOCKER_TLS_CERTDIR: ""
+    DOCKER_HOST: "tcp://localhost:2375"
 
   before_script:
   - docker info
   - apk add git
-  
+
   script:
   - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD"
   - TAG=${CI_COMMIT_SHORT_SHA}-$( date -u +%y%m%d%H%M%S )
