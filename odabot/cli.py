@@ -390,9 +390,10 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                     if frontend_instruments_dir:
                         generator = MMODATabGenerator(dispatcher_url)
                         
+                        frontend_name = project['name'].replace('-', '_').replace(' ', '_')
                         generator.generate(instrument_name = project['name'], 
                                         instruments_dir_path = frontend_instruments_dir,
-                                        frontend_name = project['name'].replace('-', '_').replace(' ', '_'), 
+                                        frontend_name = frontend_name, 
                                         roles = '' if project.get('workflow_status') == "production" else 'developer',
                                         form_dispatcher_url = 'dispatch-data/run_analysis',
                                         weight = 200) # TODO: how to guess the best weight?
@@ -401,7 +402,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                 f"deployment/{frontend_deployment}", 
                                                 "-n", k8s_namespace, 
                                                 "--", "bash", "-c", 
-                                                f"'cd /var/www/mmoda; ~/.composer/vendor/bin/drush dre -y mmoda_{project['name']}'"])
+                                                f"'cd /var/www/mmoda; ~/.composer/vendor/bin/drush dre -y mmoda_{frontend_name}'"])
             
         except Exception as e:
             logger.error("unexpected exception: %s", e)
