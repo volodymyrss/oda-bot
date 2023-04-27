@@ -9,5 +9,5 @@ docker-build:
   - docker build -t "$CI_REGISTRY_USER/odabot:$TAG" .
   - docker push "$CI_REGISTRY_USER/odabot:$TAG"
   rules:
-  - if: ( $CI_PIPELINE_SOURCE == 'merge_request_event' ) && ( $CI_MERGE_REQUEST_LABELS == 'staging_container' )
+  - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
   - if: $CI_COMMIT_BRANCH == 'master'
