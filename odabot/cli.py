@@ -86,6 +86,8 @@ def cli(obj, debug, settings):
         settings_files=settings_files,
     )
 
+    obj['debug'] = debug
+    
     logger.info("components: %s", obj['settings'].components)
 
 
@@ -209,7 +211,8 @@ def update_workflow(last_commit,
                     sparql_obj, 
                     container_registry,
                     dispatcher_deployment,
-                    build_engine):
+                    build_engine,
+                    cleanup):
     deployed_workflows = {}
 
     logger.info("will deploy this workflow")
@@ -241,7 +244,8 @@ def update_workflow(last_commit,
                                      registry=container_registry,
                                      check_live_through=dispatcher_deployment,
                                      build_engine=build_engine,
-                                     build_timestamp = True)
+                                     build_timestamp = True,
+                                     cleanup = cleanup)
         except Exception as e:
             logger.warning('exception deploying! %s\n%s\%s', e, e.output.decode(), e.stderr.decode())
             send_email([
@@ -322,8 +326,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
         try:
             try:
                 oda_bot_runtime = yaml.safe_load(open('oda-bot-runtime-workflows.yaml')) 
-                # TODO: how this file gets populated? Seems that every new oda-bot start will rebuild all workflows
-                # Probably better to get this info from KG?
+                # TODO: Probably better to get this info from KG? 
                                 
             except FileNotFoundError:
                 oda_bot_runtime = {}
@@ -367,10 +370,14 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                                       odakb_sparql, 
                                                                       container_registry,
                                                                       dispatcher_deployment,
-                                                                      build_engine))
+                                                                      build_engine,
+                                                                      cleanup = False if obj['debug'] else True))
                             updated = True    
             
             if updated:
+                with open('oda-bot-runtime-workflows.yaml', 'w') as fd:
+                    yaml.dump(deployed_workflows, fd)
+                                    
                 logger.info("updated: will reload nb2workflow-plugin")
                 res = requests.get(f"{dispatcher_url.strip('/')}/reload-plugin/dispatcher_plugin_nb2workflow")
                 assert res.status_code == 200
