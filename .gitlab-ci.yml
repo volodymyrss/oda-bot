@@ -1,8 +1,7 @@
-docker-build:
-  image: docker:stable
+build_container:
   stage: build
   before_script:
-  - apk add git
+  - docker info
   script:
   - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD"
   - TAG=${CI_COMMIT_SHORT_SHA}-$( date -u +%y%m%d%H%M%S )
