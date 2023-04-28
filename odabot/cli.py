@@ -351,7 +351,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                     logger.info('last_commit %s from %s', last_commit, last_commit_created_at)
                     
                     saved_last_commit_created_at = deployed_workflows.get(project['http_url_to_repo'], {}).get('last_commit_created_at', 0)
-
+                    
                     logger.info('last_commit_created_at %s saved_last_commit_created_at %s', last_commit_created_at, saved_last_commit_created_at )
 
                     # !!
@@ -374,36 +374,37 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                                       cleanup = False if obj['debug'] else True))
                             updated = True    
             
-                if updated:
-                    with open('oda-bot-runtime-workflows.yaml', 'w') as fd:
-                        yaml.dump(deployed_workflows, fd)
-                                        
-                    logger.info("updated: will reload nb2workflow-plugin")
-                    res = requests.get(f"{dispatcher_url.strip('/')}/reload-plugin/dispatcher_plugin_nb2workflow")
-                    assert res.status_code == 200
-                    
-                    # TODO: check live
-                    # oda-api -u staging get -i cta-example
-        
-                    # TODO: make configurable; consider it to be on k8s volume
-                    
-                    if frontend_instruments_dir:
-                        generator = MMODATabGenerator(dispatcher_url)
+                    if updated:
+                        oda_bot_runtime['deployed_workflows'] = deployed_workflows
+                        with open('oda-bot-runtime-workflows.yaml', 'w') as fd:
+                            yaml.dump(oda_bot_runtime, fd)
+                                            
+                        logger.info("updated: will reload nb2workflow-plugin")
+                        res = requests.get(f"{dispatcher_url.strip('/')}/reload-plugin/dispatcher_plugin_nb2workflow")
+                        assert res.status_code == 200
                         
-                        frontend_name = project['name'].replace('-', '_').replace(' ', '_')
-                        generator.generate(instrument_name = project['name'], 
-                                        instruments_dir_path = frontend_instruments_dir,
-                                        frontend_name = frontend_name, 
-                                        roles = '' if project.get('workflow_status') == "production" else 'oda workflow developer',
-                                        form_dispatcher_url = 'dispatch-data/run_analysis',
-                                        weight = 200) # TODO: how to guess the best weight?
-                        
-                        subprocess.check_output(["kubectl", "exec", #"-it", 
-                                                f"deployment/{frontend_deployment}", 
-                                                "-n", k8s_namespace, 
-                                                "--", "bash", "-c", 
-                                                f"cd /var/www/mmoda; ~/.composer/vendor/bin/drush dre -y mmoda_{frontend_name}"])
+                        # TODO: check live
+                        # oda-api -u staging get -i cta-example
             
+                        # TODO: make configurable; consider it to be on k8s volume
+                        
+                        if frontend_instruments_dir:
+                            generator = MMODATabGenerator(dispatcher_url)
+                            
+                            frontend_name = project['name'].replace('-', '_').replace(' ', '_')
+                            generator.generate(instrument_name = project['name'], 
+                                            instruments_dir_path = frontend_instruments_dir,
+                                            frontend_name = frontend_name, 
+                                            roles = '' if project.get('workflow_status') == "production" else 'oda workflow developer',
+                                            form_dispatcher_url = 'dispatch-data/run_analysis',
+                                            weight = 200) # TODO: how to guess the best weight?
+                            
+                            subprocess.check_output(["kubectl", "exec", #"-it", 
+                                                    f"deployment/{frontend_deployment}", 
+                                                    "-n", k8s_namespace, 
+                                                    "--", "bash", "-c", 
+                                                    f"cd /var/www/mmoda; ~/.composer/vendor/bin/drush dre -y mmoda_{frontend_name}"])
+                            
         except Exception as e:
             logger.error("unexpected exception: %s", e)
         
