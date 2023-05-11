@@ -22,3 +22,4 @@ kb = {type = "odakb"}
 frontend = {instruments_dir = "/frontend-instruments/", deployment = "oda-frontend"}
 registry = "odahub"
 build_engine = "docker"
+state_storage = {type = "yaml", path = '/oda-bot-runtime-workflows.yaml'}

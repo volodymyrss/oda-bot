@@ -321,12 +321,19 @@ def update_workflows(obj, dry_run, force, loop, pattern):
     frontend_deployment = obj['settings'].get('nb2workflow.frontend.deployment', None)
     
     build_engine = obj['settings'].get('nb2workflow.build_engine', 'docker')
+    
+    if obj['settings'].get('nb2workflow.state_storage.type', 'yaml') == 'yaml':
+        state_storage = obj['settings'].get('nb2workflow.state_storage.path', 'oda-bot-runtime-workflows.yaml')
+    else:
+        raise NotImplementedError('unknown bot state storage type: %s', 
+                                  obj['settings'].get('nb2workflow.state_storage.type'))
 
     while True:
         try:
             try:
-                oda_bot_runtime = yaml.safe_load(open('oda-bot-runtime-workflows.yaml')) 
-                # TODO: Probably better to get this info from KG? 
+                oda_bot_runtime = yaml.safe_load(open(state_storage)) 
+                # TODO: Probably better to get this info from the local KG which stores info about workflows for the dispatcher? 
+                #       Or from git in the future if we go more gitops-way. 
                                 
             except FileNotFoundError:
                 oda_bot_runtime = {}
