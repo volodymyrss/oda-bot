@@ -398,10 +398,17 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                         if frontend_instruments_dir:
                             generator = MMODATabGenerator(dispatcher_url)
                             
+                            messenger = ''
+                            for topic in project['topics']:
+                                if topic.startswith('MM '):
+                                    messenger = topic[3:]
+                                    break
+                            
                             frontend_name = project['name'].replace('-', '_').replace(' ', '_')
                             generator.generate(instrument_name = project['name'], 
                                             instruments_dir_path = frontend_instruments_dir,
                                             frontend_name = frontend_name, 
+                                            messenger = messenger,
                                             roles = '' if project.get('workflow_status') == "production" else 'oda workflow developer',
                                             form_dispatcher_url = 'dispatch-data/run_analysis',
                                             weight = 200) # TODO: how to guess the best weight?
