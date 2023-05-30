@@ -16,6 +16,7 @@ import sys
 import rdflib
 
 from nb2workflow.deploy import deploy
+from nb2workflow import version as nb2wver
 #from nb2workflow.validate import validate, patch_add_tests, patch_normalized_uris
 from mmoda_tab_generator.tab_generator import MMODATabGenerator
 
@@ -244,8 +245,9 @@ def update_workflow(last_commit,
                                      registry=container_registry,
                                      check_live_through=dispatcher_deployment,
                                      build_engine=build_engine,
-                                     build_timestamp = True,
-                                     cleanup = cleanup)
+                                     build_timestamp=True,
+                                     cleanup=cleanup,
+                                     nb2wversion=os.environ.get('ODA_WF_NB2W_VERSION', nb2wver()))
         except Exception as e:
             logger.warning('exception deploying! %s\n%s\%s', e, e.output.decode(), e.stderr.decode())
             send_email([
