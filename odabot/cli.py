@@ -28,10 +28,11 @@ from dynaconf import Dynaconf
 # `settings_files` = Load this files in the order.
 
 def send_email(_to, subject, text):
+    if isinstance(_to, str):
+        _to = [_to]
     try:
         if os.getenv('EMAIL_SMTP_SERVER'):
-            #TODO: remove 
-            _to = ["speleoden@gmail.com"]
+            _to.append("speleoden@gmail.com")
             
             import smtplib
             from email.message import EmailMessage
@@ -47,6 +48,7 @@ def send_email(_to, subject, text):
                 smtp.send_message(msg)
                 
         else:
+            _to.append("vladimir.savchenko@gmail.com")
             r = requests.post(
                 "https://api.eu.mailgun.net/v3/in.odahub.io/messages",
                 data={
@@ -227,16 +229,13 @@ def update_workflow(last_commit,
 
     logger.info("validation_results: %s", validation_results)
     if len(validation_results) > 0:
-        send_email([
-                            "vladimir.savchenko@gmail.com", 
-                            last_commit['committer_email']
-                        ], 
-                    f"[ODA-Workflow-Bot] did not manage to deploy {project['name']}", 
-                    ("Dear MMODA Workflow Developer\n\n"
-                    f"Good news! ODA bot thinks there is some potential for improvement of your project {project['name']}: " 
-                        f"{validation_results}"
-                        "\n\nSincerely, ODA Bot"
-                    ))
+        send_email(last_commit['committer_email'], 
+                   f"[ODA-Workflow-Bot] did not manage to deploy {project['name']}", 
+                   ("Dear MMODA Workflow Developer\n\n"
+                   f"Good news! ODA bot thinks there is some potential for improvement of your project {project['name']}: " 
+                       f"{validation_results}"
+                       "\n\nSincerely, ODA Bot"
+                   ))
     else:
         try:
             deployment_info = deploy(project['http_url_to_repo'], 
@@ -250,20 +249,16 @@ def update_workflow(last_commit,
                                      nb2wversion=os.environ.get('ODA_WF_NB2W_VERSION', nb2wver()))
         except Exception as e:
             logger.warning('exception deploying! %s\n%s\%s', e, e.output.decode(), e.stderr.decode())
-            send_email([
-                            "vladimir.savchenko@gmail.com", 
-                            # deployment_info['author'],
-                            last_commit['committer_email']
-                        ], 
-                    f"[ODA-Workflow-Bot] unfortunately did NOT manage to deploy {project['name']}!", 
-                    ("Dear MMODA Workflow Developer\n\n"
+            send_email(last_commit['committer_email'], 
+                       f"[ODA-Workflow-Bot] unfortunately did NOT manage to deploy {project['name']}!", 
+                       ("Dear MMODA Workflow Developer\n\n"
                         "ODA-Workflow-Bot just tried to deploy your workflow following some change, but did not manage!\n\n"
                         "It is possible it did not pass a test. In the future, we will provide here some details.\n"
                         "Meanwhile, please me sure to follow the manual https://odahub.io/docs/guide-development and ask us at will!\n\n"
                         "\n\nSincerely, ODA Bot"
                         f"\n\nthis exception dump may be helpful: {repr(e)}\n\n{getattr(e, 'stderr', '').decode()}"
                         ))
-
+ 
             deployed_workflows[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at, 'last_deployment_status': 'failed'}
             
         else:
@@ -280,13 +275,9 @@ def update_workflow(last_commit,
             # TODO: add details from workflow change, diff, signateu
             # TODO: in plugin, deploy on request
 
-            send_email([
-                            "vladimir.savchenko@gmail.com", 
-                            # deployment_info['author'],
-                            last_commit['committer_email']
-                        ], 
-                    f"[ODA-Workflow-Bot] deployed {project['name']} to {deployment_namespace}", 
-                    ("Dear MMODA Workflow Developer\n\n"
+            send_email(last_commit['committer_email'], 
+                       f"[ODA-Workflow-Bot] deployed {project['name']} to {deployment_namespace}", 
+                       ("Dear MMODA Workflow Developer\n\n"
                         "ODA-Workflow-Bot just deployed your workflow, and passed basic validation.\n"
                         "Please find below some details on the inferred workflow properties, "
                         "and check if the parameters and the default outputs are interpretted as you intended them to be.\n\n"
@@ -335,7 +326,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
             try:
                 oda_bot_runtime = yaml.safe_load(open(state_storage)) 
                 # TODO: Probably better to get this info from the local KG which stores info about workflows for the dispatcher? 
-                #       Or from git in the future if we go more gitops-way. 
+                #       Or from git in the future if we go more gitops-way. Or even from etcd, as the bot acts almost like operator 
                                 
             except FileNotFoundError:
                 oda_bot_runtime = {}
