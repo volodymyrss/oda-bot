@@ -1,0 +1,11 @@
+**.git*
+.venv
+.nb2workflow
+.vscode
+*.egg-info
+settings*.toml
+README.md
+app-workflows.sh
+app.sh
+Makefile
+oda-bot.service
