@@ -239,7 +239,7 @@ def update_workflow(last_commit,
     else:
         try:
             deployment_info = deploy(project['http_url_to_repo'], 
-                                     project['name'] + '-workflow', 
+                                     project['name'].replace(' ', '-') + '-workflow', 
                                      namespace=deployment_namespace, 
                                      registry=container_registry,
                                      check_live_through=dispatcher_deployment,
