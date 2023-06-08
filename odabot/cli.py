@@ -239,7 +239,7 @@ def update_workflow(last_commit,
     else:
         try:
             deployment_info = deploy(project['http_url_to_repo'], 
-                                     project['name'].lower().replace(' ', '-') + '-workflow', 
+                                     project['name'].lower().replace(' ', '-').replace('_', '-') + '-workflow', 
                                      namespace=deployment_namespace, 
                                      registry=container_registry,
                                      check_live_through=dispatcher_deployment,
@@ -266,7 +266,7 @@ def update_workflow(last_commit,
                 {rdflib.URIRef(project['http_url_to_repo']).n3()} a oda:WorkflowService;
                                                                 oda:last_activity_timestamp "{last_commit_created_at}";
                                                                 oda:last_deployed_timestamp "{datetime.now().timestamp()}";
-                                                                oda:service_name "{project['name']}";
+                                                                oda:service_name "{project['name'].lower().replace(' ', '_').replace('-', '_')}";
                                                                 oda:deployment_namespace "{deployment_namespace}";
                                                                 oda:deployment_name "{deployment_info['deployment_name']}" .  
             ''')
@@ -397,10 +397,11 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                     messenger = topic[3:]
                                     break
                             
-                            frontend_name = project['name'].replace('-', '_').replace(' ', '_')
-                            generator.generate(instrument_name = project['name'], 
+                            instr_name = project['name'].lower().replace(' ', '_').replace('-', '_')
+                            generator.generate(instrument_name = instr_name, 
                                             instruments_dir_path = frontend_instruments_dir,
-                                            frontend_name = frontend_name, 
+                                            frontend_name = instr_name, 
+                                            title = project['name'], 
                                             messenger = messenger,
                                             roles = '' if project.get('workflow_status') == "production" else 'oda workflow developer',
                                             form_dispatcher_url = 'dispatch-data/run_analysis',
@@ -410,7 +411,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                     f"deployment/{frontend_deployment}", 
                                                     "-n", k8s_namespace, 
                                                     "--", "bash", "-c", 
-                                                    f"cd /var/www/mmoda; ~/.composer/vendor/bin/drush dre -y mmoda_{frontend_name}"])
+                                                    f"cd /var/www/mmoda; ~/.composer/vendor/bin/drush dre -y mmoda_{instr_name}"])
                             
         except Exception as e:
             logger.error("unexpected exception: %s", e)
