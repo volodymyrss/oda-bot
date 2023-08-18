@@ -15,7 +15,7 @@ import sys
 
 import rdflib
 
-from nb2workflow.deploy import deploy
+from nb2workflow.deploy import build_container, deploy_k8s
 from nb2workflow import version as nb2wver
 #from nb2workflow.validate import validate, patch_add_tests, patch_normalized_uris
 from mmoda_tab_generator.tab_generator import MMODATabGenerator
@@ -238,15 +238,18 @@ def update_workflow(last_commit,
                    ))
     else:
         try:
-            deployment_info = deploy(project['http_url_to_repo'], 
-                                     project['name'].lower().replace(' ', '-').replace('_', '-') + '-workflow', 
-                                     namespace=deployment_namespace, 
-                                     registry=container_registry,
-                                     check_live_through=dispatcher_deployment,
-                                     build_engine=build_engine,
-                                     build_timestamp=True,
-                                     cleanup=cleanup,
-                                     nb2wversion=os.environ.get('ODA_WF_NB2W_VERSION', nb2wver()))
+            container_info = build_container(project['http_url_to_repo'], 
+                                             registry=container_registry,
+                                             build_timestamp=True,
+                                             engine=build_engine,
+                                             cleanup=cleanup,
+                                             nb2wversion=os.environ.get('ODA_WF_NB2W_VERSION', nb2wver()))
+            
+            deployment_info = deploy_k8s(container_info,
+                                         project['name'].lower().replace(' ', '-').replace('_', '-') + '-workflow', 
+                                         namespace=deployment_namespace, 
+                                         check_live_through=dispatcher_deployment)
+            
         except Exception as e:
             logger.warning('exception deploying! %s\n%s\%s', e, e.output.decode(), e.stderr.decode())
             send_email(last_commit['committer_email'], 
