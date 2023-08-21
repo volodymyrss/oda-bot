@@ -76,6 +76,7 @@ def set_commit_state(proj_id, commit_sha, name, state, target_url=None, descript
     params = {'name': name, 'state': state}
     if target_url is not None: 
         params['target_url'] = target_url
+    if description is not None:
         params['description'] = description
     res = requests.post(f'{renkuapi}/projects/{proj_id}/statuses/{commit_sha}',
                         params = params,
