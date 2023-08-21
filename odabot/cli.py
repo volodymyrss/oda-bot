@@ -79,7 +79,7 @@ def set_commit_state(proj_id, commit_sha, name, state, target_url=None, descript
         params['description'] = description
     res = requests.post(f'{renkuapi}/projects/{proj_id}/statuses/{commit_sha}',
                         params = params,
-                        header = {'PRIVATE-TOKEN': gitlab_api_token})
+                        headers = {'PRIVATE-TOKEN': gitlab_api_token})
     if res.status_code != 200:
         logger.error('Error setting commit status: %s', res.text)
     return
