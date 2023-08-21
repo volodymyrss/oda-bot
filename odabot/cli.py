@@ -402,7 +402,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
 
             updated = False
 
-            for project in requests.get('{renkuapi}groups/{renku_gid}/projects?include_subgroups=yes').json():            
+            for project in requests.get(f'{renkuapi}groups/{renku_gid}/projects?include_subgroups=yes').json():            
 
                 if re.match(pattern, project['name']) and 'live-workflow' in project['topics']:                
                     logger.info("%20s  ago %s", project['name'], project['http_url_to_repo'])
