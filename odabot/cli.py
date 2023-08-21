@@ -80,8 +80,8 @@ def set_commit_state(proj_id, commit_sha, name, state, target_url=None, descript
     res = requests.post(f'{renkuapi}/projects/{proj_id}/statuses/{commit_sha}',
                         params = params,
                         headers = {'PRIVATE-TOKEN': gitlab_api_token})
-    if res.status_code != 200:
-        logger.error('Error setting commit status: %s', res.text)
+    if res.status_code >= 300:
+        logger.error('Error setting commit status: Code %s; Content %s', res.status_code,res.text)
     return
 
 @click.group()
@@ -271,6 +271,7 @@ def update_workflow(last_commit,
                                              build_timestamp=True,
                                              engine=build_engine,
                                              cleanup=cleanup,
+                                             namespace = deployment_namespace,
                                              nb2wversion=os.environ.get('ODA_WF_NB2W_VERSION', nb2wver()))
             except:
                 set_commit_state(project['id'], 
@@ -320,7 +321,7 @@ def update_workflow(last_commit,
                         "It is possible it did not pass a test. In the future, we will provide here some details.\n"
                         "Meanwhile, please me sure to follow the manual https://odahub.io/docs/guide-development and ask us at will!\n\n"
                         "\n\nSincerely, ODA Bot"
-                        f"\n\nthis exception dump may be helpful:\n{traceback.format_exc(e)}"
+                        f"\n\nthis exception dump may be helpful:\n{traceback.format_exception(e)}"
                         ))
  
             deployed_workflows[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at, 'last_deployment_status': 'failed'}
