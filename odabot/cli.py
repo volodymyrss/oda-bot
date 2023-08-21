@@ -321,7 +321,7 @@ def update_workflow(last_commit,
                         "It is possible it did not pass a test. In the future, we will provide here some details.\n"
                         "Meanwhile, please me sure to follow the manual https://odahub.io/docs/guide-development and ask us at will!\n\n"
                         "\n\nSincerely, ODA Bot"
-                        f"\n\nthis exception dump may be helpful:\n{traceback.format_exception(e)}"
+                        f"\n\nthis exception dump may be helpful:\n{traceback.format_exc()}"
                         ))
  
             deployed_workflows[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at, 'last_deployment_status': 'failed'}
