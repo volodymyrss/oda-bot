@@ -445,7 +445,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
             
                     if updated:
                         oda_bot_runtime['deployed_workflows'] = deployed_workflows
-                        with open('oda-bot-runtime-workflows.yaml', 'w') as fd:
+                        with open(state_storage, 'w') as fd:
                             yaml.dump(oda_bot_runtime, fd)
                                             
                         logger.info("updated: will reload nb2workflow-plugin")
