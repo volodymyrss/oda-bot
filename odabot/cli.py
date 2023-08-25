@@ -73,7 +73,7 @@ def set_commit_state(proj_id, commit_sha, name, state, target_url=None, descript
     if gitlab_api_token is None:
         logger.warning("Gitlab api token not set. Skipping commit state update.")
         return
-    params = {'name': name, 'state': state}
+    params = {'name': name, 'state': f"MMODA: {state}"}
     if target_url is not None: 
         params['target_url'] = target_url
     if description is not None:
@@ -261,6 +261,7 @@ def update_workflow(last_commit,
     else:
         try:
             # build
+            bstart = datetime.now()
             set_commit_state(project['id'], 
                              last_commit['id'], 
                              "build",
@@ -279,14 +280,14 @@ def update_workflow(last_commit,
                                  last_commit['id'], 
                                  "build",
                                  "failed",
-                                 description="ODA-bot unable to build the container")
+                                 description="ODA-bot unable to build the container. An e-mail with details has been sent.")
                 raise
             else:
                 set_commit_state(project['id'], 
                                  last_commit['id'], 
                                  "build",
                                  "success",
-                                 description="ODA-bot have successfully built the container")
+                                 description=f"ODA-bot have successfully built the container in {(datetime.now() - bstart).seconds} seconds")
 
             #deploy
             set_commit_state(project['id'], 
@@ -295,8 +296,9 @@ def update_workflow(last_commit,
                              "running",
                              description="ODA-bot is deploying the workflow")
             try:
+                workflow_name = project['name'].lower().replace(' ', '-').replace('_', '-') + '-workflow'
                 deployment_info = deploy_k8s(container_info,
-                                            project['name'].lower().replace(' ', '-').replace('_', '-') + '-workflow', 
+                                            workflow_name, 
                                             namespace=deployment_namespace, 
                                             check_live_through=dispatcher_deployment)    
             except:
@@ -304,14 +306,14 @@ def update_workflow(last_commit,
                                  last_commit['id'], 
                                  "deploy",
                                  "failed",
-                                 description="ODA-bot unable to deploy the workflow")
+                                 description="ODA-bot unable to deploy the workflow. An e-mail with details has been sent.")
                 raise
             else:
                 set_commit_state(project['id'], 
                                  last_commit['id'], 
                                  "deploy",
                                  "success",
-                                 description="ODA-bot have successfully deployed the workflow")
+                                 description=f"ODA-bot have successfully deployed {workflow_name} to {deployment_namespace} namespace")
         
         except Exception as e:
             logger.warning('exception deploying %s! %s', project['name'], repr(e))
@@ -336,6 +338,12 @@ def update_workflow(last_commit,
                                                                 oda:deployment_namespace "{deployment_namespace}";
                                                                 oda:deployment_name "{deployment_info['deployment_name']}" .  
             ''')
+            set_commit_state(project['id'], 
+                last_commit['id'], 
+                "register",
+                "success",
+                description=f"ODA-bot have successfully registered workflow in ODA KG")
+            
             deployed_workflows[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at, 'last_deployment_status': 'success'}
 
             # TODO: add details from workflow change, diff, signateu
@@ -402,10 +410,8 @@ def update_workflows(obj, dry_run, force, loop, pattern):
 
             deployed_workflows = oda_bot_runtime["deployed_workflows"]
 
-            updated = False
-
             for project in requests.get(f'{renkuapi}groups/{renku_gid}/projects?include_subgroups=yes').json():            
-
+                              
                 if re.match(pattern, project['name']) and 'live-workflow' in project['topics']:                
                     logger.info("%20s  ago %s", project['name'], project['http_url_to_repo'])
                     logger.info("%20s", project['topics'])
@@ -432,73 +438,74 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                         if dry_run:
                             logger.info("would deploy this workflow")
                         else:
-                            deployed_workflows.update(update_workflow(last_commit, 
-                                                                      last_commit_created_at, 
-                                                                      project, 
-                                                                      k8s_namespace, 
-                                                                      odakb_sparql, 
-                                                                      container_registry,
-                                                                      dispatcher_deployment,
-                                                                      build_engine,
-                                                                      cleanup = False if obj['debug'] else True))
-                            updated = True    
+                            workflow_update_status = update_workflow(last_commit, 
+                                                                     last_commit_created_at, 
+                                                                     project, 
+                                                                     k8s_namespace, 
+                                                                     odakb_sparql, 
+                                                                     container_registry,
+                                                                     dispatcher_deployment,
+                                                                     build_engine,
+                                                                     cleanup = False if obj['debug'] else True)
             
-                    if updated:
-                        oda_bot_runtime['deployed_workflows'] = deployed_workflows
-                        with open(state_storage, 'w') as fd:
-                            yaml.dump(oda_bot_runtime, fd)
-                                            
-                        logger.info("updated: will reload nb2workflow-plugin")
-                        res = requests.get(f"{dispatcher_url.strip('/')}/reload-plugin/dispatcher_plugin_nb2workflow")
-                        assert res.status_code == 200
-                        
-                        # TODO: check live
-                        # oda-api -u staging get -i cta-example
-            
-                        # TODO: make configurable; consider it to be on k8s volume
-                        
-                        if frontend_instruments_dir:
-                            set_commit_state(project['id'], 
-                                             last_commit['id'], 
-                                             "frontend_tab",
-                                             "running",
-                                             description="Generating frontend tab")
-                            try:
-                                generator = MMODATabGenerator(dispatcher_url)
+                            deployed_workflows.update(workflow_update_status)
+                            oda_bot_runtime['deployed_workflows'] = deployed_workflows
+                            with open(state_storage, 'w') as fd:
+                                yaml.dump(oda_bot_runtime, fd)
+                            
+                            if workflow_update_status['last_deployment_status'] == 'success':
                                 
-                                messenger = ''
-                                for topic in project['topics']:
-                                    if topic.startswith('MM '):
-                                        messenger = topic[3:]
-                                        break
+                                logger.info("updated: will reload nb2workflow-plugin")
+                                res = requests.get(f"{dispatcher_url.strip('/')}/reload-plugin/dispatcher_plugin_nb2workflow")
+                                assert res.status_code == 200
                                 
-                                instr_name = project['name'].lower().replace(' ', '_').replace('-', '_')
-                                generator.generate(instrument_name = instr_name, 
-                                                instruments_dir_path = frontend_instruments_dir,
-                                                frontend_name = instr_name, 
-                                                title = project['name'], 
-                                                messenger = messenger,
-                                                roles = '' if project.get('workflow_status') == "production" else 'oda workflow developer',
-                                                form_dispatcher_url = 'dispatch-data/run_analysis',
-                                                weight = 200) # TODO: how to guess the best weight?
+                                # TODO: check live
+                                # oda-api -u staging get -i cta-example
+                    
+                                # TODO: make configurable; consider it to be on k8s volume
                                 
-                                subprocess.check_output(["kubectl", "exec", #"-it", 
-                                                        f"deployment/{frontend_deployment}", 
-                                                        "-n", k8s_namespace, 
-                                                        "--", "bash", "-c", 
-                                                        f"cd /var/www/mmoda; ~/.composer/vendor/bin/drush dre -y mmoda_{instr_name}"])
-                            except:
-                                set_commit_state(project['id'], 
-                                                 last_commit['id'], 
-                                                 "frontend_tab",
-                                                 "failed",
-                                                 description="Failed generating frontend tab")
-                            else:
-                                set_commit_state(project['id'], 
-                                                 last_commit['id'], 
-                                                 "frontend_tab",
-                                                 "success",
-                                                 description="Frontend tab generated")
+                                if frontend_instruments_dir:
+                                    set_commit_state(project['id'], 
+                                                    last_commit['id'], 
+                                                    "frontend_tab",
+                                                    "running",
+                                                    description="Generating frontend tab")
+                                    try:
+                                        generator = MMODATabGenerator(dispatcher_url)
+                                        
+                                        messenger = ''
+                                        for topic in project['topics']:
+                                            if topic.startswith('MM '):
+                                                messenger = topic[3:]
+                                                break
+                                        
+                                        instr_name = project['name'].lower().replace(' ', '_').replace('-', '_')
+                                        generator.generate(instrument_name = instr_name, 
+                                                        instruments_dir_path = frontend_instruments_dir,
+                                                        frontend_name = instr_name, 
+                                                        title = project['name'], 
+                                                        messenger = messenger,
+                                                        roles = '' if project.get('workflow_status') == "production" else 'oda workflow developer',
+                                                        form_dispatcher_url = 'dispatch-data/run_analysis',
+                                                        weight = 200) # TODO: how to guess the best weight?
+                                        
+                                        subprocess.check_output(["kubectl", "exec", #"-it", 
+                                                                f"deployment/{frontend_deployment}", 
+                                                                "-n", k8s_namespace, 
+                                                                "--", "bash", "-c", 
+                                                                f"cd /var/www/mmoda; ~/.composer/vendor/bin/drush dre -y mmoda_{instr_name}"])
+                                    except:
+                                        set_commit_state(project['id'], 
+                                                        last_commit['id'], 
+                                                        "frontend_tab",
+                                                        "failed",
+                                                        description="Failed generating frontend tab")
+                                    else:
+                                        set_commit_state(project['id'], 
+                                                        last_commit['id'], 
+                                                        "frontend_tab",
+                                                        "success",
+                                                        description="Frontend tab generated")
                             
         except Exception as e:
             logger.error("unexpected exception: %s", e)
