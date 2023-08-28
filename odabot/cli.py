@@ -48,7 +48,7 @@ def send_email(_to, subject, text, attachments=None):
             msg.attach(part1)
             
             if attachments is not None:    
-                if not isinstance(attachments, 'list'): 
+                if not isinstance(attachments, list): 
                     attachments = [attachments]
                 for attachment in attachments:
                     with open(attachment, 'rb') as fd:
@@ -330,6 +330,8 @@ def update_workflow(last_commit,
                                  description=f"ODA-bot have successfully deployed {workflow_name} to {deployment_namespace} namespace")
         
         except Exception as e:
+            deployed_workflows[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at, 'last_deployment_status': 'failed'}
+
             logger.warning('exception deploying %s! %s', project['name'], repr(e))
             
             with tempfile.TemporaryDirectory() as tmpdir:
@@ -349,7 +351,6 @@ def update_workflow(last_commit,
                            f"\n\nthis exception dump may be helpful:\n{traceback.format_exc()}"
                            ), attachment)
  
-            deployed_workflows[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at, 'last_deployment_status': 'failed'}
             
         else:
             sparql_obj.insert(f'''
