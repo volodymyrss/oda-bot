@@ -338,7 +338,7 @@ def update_workflow(last_commit,
                 if buildlog is not None:
                     attachment = os.path.join(tmpdir, 'build.log')
                     with open(attachment, 'wt') as fd:
-                        fd.write(buildlog)
+                        fd.write(buildlog.decode())
                 send_email(last_commit['committer_email'], 
                            f"[ODA-Workflow-Bot] unfortunately did NOT manage to deploy {project['name']}!", 
                            ("Dear MMODA Workflow Developer\n\n"
