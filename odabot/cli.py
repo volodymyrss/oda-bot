@@ -330,7 +330,8 @@ def update_workflow(last_commit,
                                  description=f"ODA-bot have successfully deployed {workflow_name} to {deployment_namespace} namespace")
         
         except Exception as e:
-            deployed_workflows[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at, 'last_deployment_status': 'failed'}
+            deployed_workflows[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at, 
+                                                               'last_deployment_status': 'failed'}
 
             logger.warning('exception deploying %s! %s', project['name'], repr(e))
             
@@ -367,7 +368,8 @@ def update_workflow(last_commit,
                 "success",
                 description=f"ODA-bot have successfully registered workflow in ODA KG")
             
-            deployed_workflows[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at, 'last_deployment_status': 'success'}
+            deployed_workflows[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at, 
+                                                               'last_deployment_status': 'success'}
 
             # TODO: add details from workflow change, diff, signateu
             # TODO: in plugin, deploy on request
@@ -477,7 +479,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                             with open(state_storage, 'w') as fd:
                                 yaml.dump(oda_bot_runtime, fd)
                             
-                            if workflow_update_status['last_deployment_status'] == 'success':
+                            if workflow_update_status[project['http_url_to_repo']]['last_deployment_status'] == 'success':
                                 
                                 logger.info("updated: will reload nb2workflow-plugin")
                                 res = requests.get(f"{dispatcher_url.strip('/')}/reload-plugin/dispatcher_plugin_nb2workflow")
@@ -524,6 +526,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                         "frontend_tab",
                                                         "failed",
                                                         description="Failed generating frontend tab")
+                                        raise
                                     else:
                                         set_commit_state(project['id'], 
                                                         last_commit['id'], 
@@ -533,7 +536,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                         target_url=frontend_url)
                             
         except Exception as e:
-            logger.error("unexpected exception: %s", e)
+            logger.error("unexpected exception: %s", repr(e))
         
         if loop > 0:
             logger.info("sleeping %s", loop)
