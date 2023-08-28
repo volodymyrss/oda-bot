@@ -87,7 +87,7 @@ def set_commit_state(proj_id, commit_sha, name, state, target_url=None, descript
     if gitlab_api_token is None:
         logger.warning("Gitlab api token not set. Skipping commit state update.")
         return
-    params = {'name': name, 'state': f"MMODA: {state}"}
+    params = {'name': f"MMODA: {name}", 'state': state}
     if target_url is not None: 
         params['target_url'] = target_url
     if description is not None:
@@ -340,14 +340,14 @@ def update_workflow(last_commit,
                     with open(attachment, 'wt') as fd:
                         fd.write(buildlog)
                 send_email(last_commit['committer_email'], 
-                        f"[ODA-Workflow-Bot] unfortunately did NOT manage to deploy {project['name']}!", 
-                        ("Dear MMODA Workflow Developer\n\n"
-                            "ODA-Workflow-Bot just tried to deploy your workflow following some change, but did not manage!\n\n"
-                            "It is possible it did not pass a test. In the future, we will provide here some details.\n"
-                            "Meanwhile, please me sure to follow the manual https://odahub.io/docs/guide-development and ask us at will!\n\n"
-                            "\n\nSincerely, ODA Bot"
-                            f"\n\nthis exception dump may be helpful:\n{traceback.format_exc()}"
-                            ), attachment)
+                           f"[ODA-Workflow-Bot] unfortunately did NOT manage to deploy {project['name']}!", 
+                           ("Dear MMODA Workflow Developer\n\n"
+                           "ODA-Workflow-Bot just tried to deploy your workflow following some change, but did not manage!\n\n"
+                           "It is possible it did not pass a test. In the future, we will provide here some details.\n"
+                           "Meanwhile, please me sure to follow the manual https://odahub.io/docs/guide-development and ask us at will!\n\n"
+                           "\n\nSincerely, ODA Bot"
+                           f"\n\nthis exception dump may be helpful:\n{traceback.format_exc()}"
+                           ), attachment)
  
             deployed_workflows[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at, 'last_deployment_status': 'failed'}
             
