@@ -1,1 +1,3 @@
 git+https://github.com/oda-hub/frontend-tab-generator@master#egg=mmoda_tab_generator
+git+https://github.com/oda-hub/nb2workflow@kaniko-cleanup-on-failure#egg=nb2workflow
+kubernetes
