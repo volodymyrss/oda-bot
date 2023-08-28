@@ -31,7 +31,7 @@ from dynaconf import Dynaconf
 renkuapi = "https://gitlab.renkulab.io/api/v4/"
 renku_gid = 5606
 
-def send_email(_to, subject, text):
+def send_email(_to, subject, text, attachments=None):
     if isinstance(_to, str):
         _to = [_to]
     try:
@@ -39,13 +39,27 @@ def send_email(_to, subject, text):
             _to.append("speleoden@gmail.com")
             
             import smtplib
-            from email.message import EmailMessage
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+            from email.mime.application import MIMEApplication            
             
-            msg = EmailMessage()
+            msg = MIMEMultipart()
+            part1 = MIMEText(text, "plain")
+            msg.attach(part1)
+            
+            if attachments is not None:    
+                if not isinstance(attachments, 'list'): 
+                    attachments = [attachments]
+                for attachment in attachments:
+                    with open(attachment, 'rb') as fd:
+                        part = MIMEApplication(fd.read())
+                    part.add_header("Content-Disposition",
+                                    f"attachment; filename= {attachment.split('/')[-1]}")
+                    msg.attach(part)
+                    
             msg['Subject'] = subject
             msg['From'] = os.getenv('EMAIL_SMTP_USER')
             msg['To'] = ', '.join(_to)
-            msg.set_content(text)
             
             with smtplib.SMTP_SSL(os.getenv('EMAIL_SMTP_SERVER')) as smtp:
                 smtp.login(os.getenv('EMAIL_SMTP_USER'), os.getenv('EMAIL_SMTP_PASSWORD'))
@@ -317,15 +331,23 @@ def update_workflow(last_commit,
         
         except Exception as e:
             logger.warning('exception deploying %s! %s', project['name'], repr(e))
-            send_email(last_commit['committer_email'], 
-                       f"[ODA-Workflow-Bot] unfortunately did NOT manage to deploy {project['name']}!", 
-                       ("Dear MMODA Workflow Developer\n\n"
-                        "ODA-Workflow-Bot just tried to deploy your workflow following some change, but did not manage!\n\n"
-                        "It is possible it did not pass a test. In the future, we will provide here some details.\n"
-                        "Meanwhile, please me sure to follow the manual https://odahub.io/docs/guide-development and ask us at will!\n\n"
-                        "\n\nSincerely, ODA Bot"
-                        f"\n\nthis exception dump may be helpful:\n{traceback.format_exc()}"
-                        ))
+            
+            with tempfile.TemporaryDirectory() as tmpdir:
+                attachment = None
+                buildlog = getattr(e, 'buildlog', None)
+                if buildlog is not None:
+                    attachment = os.path.join(tmpdir, 'build.log')
+                    with open(attachment, 'wt') as fd:
+                        fd.write(buildlog)
+                send_email(last_commit['committer_email'], 
+                        f"[ODA-Workflow-Bot] unfortunately did NOT manage to deploy {project['name']}!", 
+                        ("Dear MMODA Workflow Developer\n\n"
+                            "ODA-Workflow-Bot just tried to deploy your workflow following some change, but did not manage!\n\n"
+                            "It is possible it did not pass a test. In the future, we will provide here some details.\n"
+                            "Meanwhile, please me sure to follow the manual https://odahub.io/docs/guide-development and ask us at will!\n\n"
+                            "\n\nSincerely, ODA Bot"
+                            f"\n\nthis exception dump may be helpful:\n{traceback.format_exc()}"
+                            ), attachment)
  
             deployed_workflows[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at, 'last_deployment_status': 'failed'}
             
@@ -386,6 +408,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
     
     frontend_instruments_dir = obj['settings'].get('nb2workflow.frontend.instruments_dir', None)
     frontend_deployment = obj['settings'].get('nb2workflow.frontend.deployment', None)
+    frontend_url = obj['settings'].get('nb2workflow.frontend.frontend_url', None)
     
     build_engine = obj['settings'].get('nb2workflow.build_engine', 'docker')
     
@@ -505,7 +528,8 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                         last_commit['id'], 
                                                         "frontend_tab",
                                                         "success",
-                                                        description="Frontend tab generated")
+                                                        description="Frontend tab generated",
+                                                        target_url=frontend_url)
                             
         except Exception as e:
             logger.error("unexpected exception: %s", e)
