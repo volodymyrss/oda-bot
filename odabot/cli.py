@@ -297,11 +297,18 @@ def update_workflow(last_commit,
                                  description="ODA-bot unable to build the container. An e-mail with details has been sent.")
                 raise
             else:
+                if container_info['image'].count('/') == 1:
+                    container_info['image'] 
+                    hub_url = f"https://hub.docker.com/r/{container_info['image'].split(':')[0]}"
+                else:
+                    hub_url = None # no universal way to construct clickable url 
                 set_commit_state(project['id'], 
                                  last_commit['id'], 
                                  "build",
                                  "success",
-                                 description=f"ODA-bot have successfully built the container in {(datetime.now() - bstart).seconds} seconds")
+                                 description=(f"ODA-bot have successfully built the container in {(datetime.now() - bstart).seconds} seconds. "
+                                              f"Image pushed to registry as {container_info['image']}"),
+                                 target_url=hub_url)
 
             #deploy
             set_commit_state(project['id'], 
