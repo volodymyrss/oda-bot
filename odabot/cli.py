@@ -14,6 +14,7 @@ from datetime import datetime
 import sys 
 import traceback
 
+import markdown
 import rdflib
 
 from nb2workflow.deploy import build_container, deploy_k8s
@@ -504,6 +505,13 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                     "running",
                                                     description="Generating frontend tab")
                                     try:
+                                        repo_ls = requests.get(f'{renkuapi}projects/{project["id"]}/repository/tree').json()
+                                        if 'acknowledgements.md' in [x['name'] for x in repo_ls]:
+                                            citation = requests.get(f'{renkuapi}projects/{project["id"]}/repository/files/acknowledgements.md/raw?ref=master').text
+                                            citation = markdown.markdown(citation)
+                                        else:
+                                            citation = f'Service generated from <a href="{project["http_url_to_repo"]}" target="_blank">the repository</a>'
+                                        
                                         generator = MMODATabGenerator(dispatcher_url)
                                         
                                         messenger = ''
@@ -520,7 +528,8 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                         messenger = messenger,
                                                         roles = '' if project.get('workflow_status') == "production" else 'oda workflow developer',
                                                         form_dispatcher_url = 'dispatch-data/run_analysis',
-                                                        weight = 200) # TODO: how to guess the best weight?
+                                                        weight = 200, # TODO: how to guess the best weight?
+                                                        citation=citation) 
                                         
                                         subprocess.check_output(["kubectl", "exec", #"-it", 
                                                                 f"deployment/{frontend_deployment}", 
