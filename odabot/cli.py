@@ -343,12 +343,17 @@ def update_workflow(last_commit,
             logger.warning('exception deploying %s! %s', project['name'], repr(e))
             
             with tempfile.TemporaryDirectory() as tmpdir:
-                attachment = None
+                attachments = []
                 buildlog = getattr(e, 'buildlog', None)
+                dockerfile = getattr(e, 'dockerfile', None)
                 if buildlog is not None:
-                    attachment = os.path.join(tmpdir, 'build.log')
-                    with open(attachment, 'wt') as fd:
+                    attachments.append(os.path.join(tmpdir, 'build.log'))
+                    with open(attachments[-1], 'wt') as fd:
                         fd.write(buildlog.decode())
+                if dockerfile is not None:
+                    attachments.append(os.path.join(tmpdir, 'Dockerfile'))
+                    with open(attachments[-1], 'wt') as fd:
+                        fd.write(dockerfile)
                 send_email(last_commit['committer_email'], 
                            f"[ODA-Workflow-Bot] unfortunately did NOT manage to deploy {project['name']}!", 
                            ("Dear MMODA Workflow Developer\n\n"
@@ -357,7 +362,7 @@ def update_workflow(last_commit,
                            "Meanwhile, please me sure to follow the manual https://odahub.io/docs/guide-development and ask us at will!\n\n"
                            "\n\nSincerely, ODA Bot"
                            f"\n\nthis exception dump may be helpful:\n{traceback.format_exc()}"
-                           ), attachment)
+                           ), attachments)
  
             
         else:
