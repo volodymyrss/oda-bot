@@ -348,8 +348,8 @@ def update_workflow(last_commit,
                 dockerfile = getattr(e, 'dockerfile', None)
                 if buildlog is not None:
                     attachments.append(os.path.join(tmpdir, 'build.log'))
-                    with open(attachments[-1], 'wt') as fd:
-                        fd.write(buildlog.decode())
+                    with open(attachments[-1], 'wb') as fd:
+                        fd.write(buildlog)
                 if dockerfile is not None:
                     attachments.append(os.path.join(tmpdir, 'Dockerfile'))
                     with open(attachments[-1], 'wt') as fd:
