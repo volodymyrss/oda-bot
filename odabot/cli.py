@@ -517,11 +517,16 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                         help_html = None
                                         res = requests.get(f'{renkuapi}projects/{project["id"]}/repository/files/mmoda_help_page.md/raw')
                                         if res.status_code == 200:
+                                            logger.info('Help found in repo. Converting')
                                             help_md = res.text
+                                            logger.debug('Help markdown: %s', help_md)
                                             img_base_url = f'{project["web_url"]}/-/raw/{project["default_branch"]}/'
                                             help_html = convert_help(help_md, img_base_url)
+                                            logger.debug('Help html: %s', help_html)
+                                            
                                         
                                         instr_name = project['name'].lower().replace(' ', '_').replace('-', '_')
+                                        logger.info('Generating frontend tab')
                                         generator.generate(instrument_name = instr_name, 
                                                         instruments_dir_path = frontend_instruments_dir,
                                                         frontend_name = instr_name, 
