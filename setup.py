@@ -10,7 +10,9 @@ install_req = [
     'nb2workflow',
     'oda_api',
     'cwltool',
-    'mmoda_tab_generator'
+    'mmoda_tab_generator',
+    'markdown',
+    'markdown-katex'
 ]
 
 test_req = [
