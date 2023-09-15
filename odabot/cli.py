@@ -21,6 +21,8 @@ from nb2workflow import version as nb2wver
 #from nb2workflow.validate import validate, patch_add_tests, patch_normalized_uris
 from mmoda_tab_generator.tab_generator import MMODATabGenerator
 
+from .markdown_helper import convert_help
+
 logger = logging.getLogger()
 
 from dynaconf import Dynaconf
@@ -510,7 +512,14 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                         for topic in project['topics']:
                                             if topic.startswith('MM '):
                                                 messenger = topic[3:]
-                                                break
+                                                break                                     
+                                        
+                                        help_html = None
+                                        res = requests.get(f'{renkuapi}projects/{project["id"]}/repository/files/mmoda_help_page.md/raw')
+                                        if res.status_code == 200:
+                                            help_md = res.text
+                                            img_base_url = f'{project["web_url"]}/-/raw/{project["default_branch"]}/'
+                                            help_html = convert_help(help_md, img_base_url)
                                         
                                         instr_name = project['name'].lower().replace(' ', '_').replace('-', '_')
                                         generator.generate(instrument_name = instr_name, 
@@ -520,7 +529,8 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                         messenger = messenger,
                                                         roles = '' if project.get('workflow_status') == "production" else 'oda workflow developer',
                                                         form_dispatcher_url = 'dispatch-data/run_analysis',
-                                                        weight = 200) # TODO: how to guess the best weight?
+                                                        weight = 200, # TODO: how to guess the best weight?
+                                                        help_page = help_html) 
                                         
                                         subprocess.check_output(["kubectl", "exec", #"-it", 
                                                                 f"deployment/{frontend_deployment}", 
