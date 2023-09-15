@@ -11,7 +11,8 @@ install_req = [
     'oda_api',
     'cwltool',
     'mmoda_tab_generator',
-    'markdown'
+    'markdown',
+    'markdown-katex'
 ]
 
 test_req = [
