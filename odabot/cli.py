@@ -257,6 +257,8 @@ def update_workflow(last_commit,
                     cleanup,
                     extra_emails=[]):
     deployed_workflows = {}
+    deployment_info = None
+
 
     logger.info("will deploy this workflow")
 
@@ -327,7 +329,6 @@ def update_workflow(last_commit,
                                             namespace=deployment_namespace, 
                                             check_live_through=dispatcher_deployment)    
             except:
-                deployment_info = None
                 set_commit_state(project['id'], 
                                  last_commit['id'], 
                                  "deploy",
