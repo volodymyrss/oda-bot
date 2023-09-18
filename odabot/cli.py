@@ -588,7 +588,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                     f"[ODA-Workflow-Bot] error creating frontend tab for {project['name']}",
                                                     traceback.format_exc())
                                         # TODO: sentry
-                                        raise
+                                        logger.error("unexpected exception: %s", repr(e))
 
                                     else:
                                         set_commit_state(project['id'], 
@@ -609,11 +609,10 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                 "\n\nSincerely, ODA Bot"
                                                 ), extra_emails = admin_emails)
 
-                                    finally:
-                                        deployed_workflows.update(workflow_update_status)
-                                        oda_bot_runtime['deployed_workflows'] = deployed_workflows
-                                        with open(state_storage, 'w') as fd:
-                                            yaml.dump(oda_bot_runtime, fd)
+                            deployed_workflows.update(workflow_update_status)
+                            oda_bot_runtime['deployed_workflows'] = deployed_workflows
+                            with open(state_storage, 'w') as fd:
+                                yaml.dump(oda_bot_runtime, fd)
                             
         except Exception as e:
             logger.error("unexpected exception: %s", repr(e))
