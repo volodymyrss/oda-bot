@@ -463,7 +463,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
             deployed_workflows = oda_bot_runtime["deployed_workflows"]
 
             for project in requests.get(f'{renkuapi}groups/{renku_gid}/projects?include_subgroups=yes').json():            
-                              
+             
                 if re.match(pattern, project['name']) and 'live-workflow' in project['topics']:                
                     logger.info("%20s  ago %s", project['name'], project['http_url_to_repo'])
                     logger.info("%20s", project['topics'])
@@ -563,17 +563,9 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                                 "-n", k8s_namespace, 
                                                                 "--", "bash", "-c", 
                                                                 f"cd /var/www/mmoda; ~/.composer/vendor/bin/drush dre -y mmoda_{instr_name}"])
-                                        
-                                        send_email(last_commit['committer_email'], 
-                                                   f"[ODA-Workflow-Bot] deployed {project['name']}", 
-                                                   ("Dear MMODA Workflow Developer\n\n"
-                                                    "ODA-Workflow-Bot just deployed your workflow, and passed basic validation.\n"
-                                                    "Please find below some details on the inferred workflow properties, "
-                                                    "and check if the parameters and the default outputs are interpretted as you intended them to be.\n\n"
-                                                    f"{json.dumps(deployment_info, indent=4)}\n\n"
-                                                    "You can now try using accessing your workflow, see https://odahub.io/docs/guide-development/#optional-try-a-test-service\n\n"
-                                                    "\n\nSincerely, ODA Bot"
-                                                    ), extra_emails = admin_emails)
+
+                                        workflow_update_status[project['http_url_to_repo']]['last_deployment_status'] == 'success'
+
                                     except:
                                         set_commit_state(project['id'], 
                                                         last_commit['id'], 
@@ -605,16 +597,27 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                         "success",
                                                         description="Frontend tab generated",
                                                         target_url=frontend_url)
+                                        
+                                        send_email(last_commit['committer_email'], 
+                                                f"[ODA-Workflow-Bot] deployed {project['name']}", 
+                                                ("Dear MMODA Workflow Developer\n\n"
+                                                "ODA-Workflow-Bot just deployed your workflow, and passed basic validation.\n"
+                                                "Please find below some details on the inferred workflow properties, "
+                                                "and check if the parameters and the default outputs are interpretted as you intended them to be.\n\n"
+                                                f"{json.dumps(deployment_info, indent=4)}\n\n"
+                                                "You can now try using accessing your workflow, see https://odahub.io/docs/guide-development/#optional-try-a-test-service\n\n"
+                                                "\n\nSincerely, ODA Bot"
+                                                ), extra_emails = admin_emails)
+
+                                    finally:
+                                        deployed_workflows.update(workflow_update_status)
+                                        oda_bot_runtime['deployed_workflows'] = deployed_workflows
+                                        with open(state_storage, 'w') as fd:
+                                            yaml.dump(oda_bot_runtime, fd)
                             
         except Exception as e:
             logger.error("unexpected exception: %s", repr(e))
             
-        finally:
-            deployed_workflows.update(workflow_update_status)
-            oda_bot_runtime['deployed_workflows'] = deployed_workflows
-            with open(state_storage, 'w') as fd:
-                yaml.dump(oda_bot_runtime, fd)
-        
         
         if loop > 0:
             logger.info("sleeping %s", loop)
