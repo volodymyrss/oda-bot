@@ -500,7 +500,10 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                                      build_engine,
                                                                      cleanup = False if obj['debug'] else True,
                                                                      extra_emails = admin_emails)
-                
+
+                            logger.info('Workflow update status %s', workflow_update_status)
+                            logger.info('Deployment info %s', deployment_info)
+                            
                             if workflow_update_status[project['http_url_to_repo']]['last_deployment_status'] == 'success':
                                 
                                 logger.info("updated: will reload nb2workflow-plugin")
@@ -588,7 +591,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                     f"[ODA-Workflow-Bot] error creating frontend tab for {project['name']}",
                                                     traceback.format_exc())
                                         # TODO: sentry
-                                        logger.error("unexpected exception: %s", repr(e))
+                                        logger.error("exception while generating tab: %s", repr(e))
 
                                     else:
                                         set_commit_state(project['id'], 
@@ -615,7 +618,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                 yaml.dump(oda_bot_runtime, fd)
                             
         except Exception as e:
-            logger.error("unexpected exception: %s", repr(e))
+            logger.error("unexpected exception: %s", traceback.format_exc())
             
         
         if loop > 0:
