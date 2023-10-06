@@ -523,14 +523,14 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                     "running",
                                                     description="Generating frontend tab")
                                     try:
-                                        repo_ls = requests.get(f'{renkuapi}projects/{project["id"]}/repository/tree').json()
-                                        if 'acknowledgements.md' in [x['name'] for x in repo_ls]:
-                                            citation = requests.get(f'{renkuapi}projects/{project["id"]}/repository/files/acknowledgements.md/raw?ref=master').text
-                                            citation = markdown.markdown(citation)
-                                        else:
-                                            citation = f'Service generated from <a href="{project["http_url_to_repo"]}" target="_blank">the repository</a>'
-                                        
-                                        generator = MMODATabGenerator(dispatcher_url)
+                                        acknowl = f'Service generated from <a href="{project["http_url_to_repo"]}" target="_blank">the repository</a>'
+                                        res = requests.get(f'{renkuapi}projects/{project["id"]}/repository/files/acknowledgements.md/raw?ref=master')
+                                        if res.status_code == 200:
+                                            logger.info('Acknowledgements found in repo. Converting')
+                                            acknowl = res.text
+                                            logger.debug('Acknowledgements markdown: %s', acknowl)
+                                            acknowl = markdown.markdown(acknowl)
+                                            logger.debug('Acknowledgements html: %s', acknowl)
                                         
                                         messenger = ''
                                         for topic in project['topics']:
@@ -547,10 +547,11 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                             img_base_url = f'{project["web_url"]}/-/raw/{project["default_branch"]}/'
                                             help_html = convert_help(help_md, img_base_url)
                                             logger.debug('Help html: %s', help_html)
-                                            
                                         
                                         instr_name = project['name'].lower().replace(' ', '_').replace('-', '_')
+                                        
                                         logger.info('Generating frontend tab')
+                                        generator = MMODATabGenerator(dispatcher_url)
                                         generator.generate(instrument_name = instr_name, 
                                                         instruments_dir_path = frontend_instruments_dir,
                                                         frontend_name = instr_name, 
@@ -559,7 +560,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                         roles = '' if project.get('workflow_status') == "production" else 'oda workflow developer',
                                                         form_dispatcher_url = 'dispatch-data/run_analysis',
                                                         weight = 200, # TODO: how to guess the best weight?
-                                                        citation = citation,
+                                                        citation = acknowl,
                                                         help_page = help_html) 
                                         
                                         subprocess.check_output(["kubectl", "exec", #"-it", 
