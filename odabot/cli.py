@@ -463,7 +463,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
 
             deployed_workflows = oda_bot_runtime["deployed_workflows"]
 
-            for project in requests.get(f'{renkuapi}groups/{renku_gid}/projects?include_subgroups=yes').json():            
+            for project in requests.get(f'{renkuapi}groups/{renku_gid}/projects?include_subgroups=yes&order_by=last_activity_at').json():            
              
                 if re.match(pattern, project['name']) and 'live-workflow' in project['topics']:                
                     logger.info("%20s  ago %s", project['name'], project['http_url_to_repo'])
