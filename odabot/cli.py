@@ -7,8 +7,7 @@ import re
 import time
 import yaml
 import tempfile
-import click
-import subprocess
+import subprocess as sp
 import requests
 from datetime import datetime
 import sys 
@@ -16,20 +15,25 @@ import traceback
 
 import markdown
 import rdflib
-
-from nb2workflow.deploy import build_container, deploy_k8s, ContainerBuildException
-from nb2workflow import version as nb2wver
-#from nb2workflow.validate import validate, patch_add_tests, patch_normalized_uris
-from mmoda_tab_generator.tab_generator import MMODATabGenerator
-
-from .markdown_helper import convert_help
+import click
+from dynaconf import Dynaconf
 
 logger = logging.getLogger()
 
-from dynaconf import Dynaconf
+try:
+    from nb2workflow.deploy import build_container, deploy_k8s, ContainerBuildException
+    from nb2workflow import version as nb2wver
+    #from nb2workflow.validate import validate, patch_add_tests, patch_normalized_uris
+    from mmoda_tab_generator.tab_generator import MMODATabGenerator
+    from .markdown_helper import convert_help
+except ImportError:
+    logger.warning('Deployment dependencies not loaded')
+    
+try:
+    from nb2workflow.galaxy import to_galaxy    
+except ImportError:
+    logger.warning('Galaxy dependencies not loaded')
 
-# `envvar_prefix` = export envvars with `export DYNACONF_FOO=bar`.
-# `settings_files` = Load this files in the order.
 
 renkuapi = "https://gitlab.renkulab.io/api/v4/"
 renku_gid = 5606
@@ -111,9 +115,10 @@ def cli(obj, debug, settings):
         stream = sys.stdout,
         level=logging.DEBUG if debug else logging.INFO,
         format='\033[36m%(asctime)s %(levelname)s %(module)s\033[0m  %(message)s',
+        force = True,
     )
-
-    logger.info("default logging level INFO")
+    
+    logger.info("logging level %s", 'INFO' if logger.level == 20 else 'DEBUG')
     
     settings_files=[
         'settings.toml', 
@@ -138,7 +143,7 @@ def cli(obj, debug, settings):
 @click.argument('component')
 def update_chart(component, branch):    
     with tempfile.TemporaryDirectory() as chart_dir:
-        subprocess.check_call([
+        sp.check_call([
             "git", "clone", 
             f"git@gitlab.astro.unige.ch:oda/{component}/{component}-chart.git",
             chart_dir,
@@ -150,7 +155,7 @@ def update_chart(component, branch):
         #     ])
 
         try:
-            r = subprocess.check_call([
+            r = sp.check_call([
                     "make", "-C", chart_dir, "update"
                 ],
                 env={**os.environ, 
@@ -159,10 +164,10 @@ def update_chart(component, branch):
                      'GIT_CONFIG_VALUE_0': 'false'}
             )
             logger.error('\033[32msucceeded update (next to commit): %s\033[0m', r)
-            r = subprocess.check_call([
+            r = sp.check_call([
                 "git", "push", "origin", branch
             ])
-        except subprocess.CalledProcessError as e:
+        except sp.CalledProcessError as e:
             logger.error('\033[31mcan not update (maybe no updates available?): %s\033[0m', e)
 
 
@@ -563,7 +568,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                         citation = acknowl,
                                                         help_page = help_html) 
                                         
-                                        subprocess.check_output(["kubectl", "exec", #"-it", 
+                                        sp.check_output(["kubectl", "exec", #"-it", 
                                                                 f"deployment/{frontend_deployment}", 
                                                                 "-n", k8s_namespace, 
                                                                 "--", "bash", "-c", 
@@ -651,7 +656,166 @@ def verify_workflows(obj):
         logger.info("%s: %s", r['@id'], json.dumps(r, indent=4))
         
         api.get_instrument_description(r["http://odahub.io/ontology#service_name"][0]['@value'])
+
+@cli.command()
+@click.option("--dry-run", is_flag=True)
+@click.option("--loop", default=0)
+@click.option("--force", is_flag=True)
+@click.option("--pattern", default=".*")
+@click.pass_obj
+def make_galaxy_tools(obj, dry_run, loop, force, pattern):
+    tools_repo = obj['settings'].get('nb2galaxy.tools_repo', "https://github.com/esg-epfl-apc/tools-astro/")
+    tools_repo_branch = obj['settings'].get('nb2galaxy.tools_repo_branch', "main")
+    repo_cache_dir = obj['settings'].get('nb2galaxy.repo_cache_path', "/nb2galaxy-cache")
+    state_storage = obj['settings'].get('nb2galaxy.state_storage', '/nb2galaxy-cache/oda-bot-runtime-galaxy.yaml')
+    git_name = obj['settings'].get('nb2galaxy.git_identity.name', 'ODA bot')
+    git_email = obj['settings'].get('nb2galaxy.git_identity.email', 'noreply@odahub.io')
+    
+    repo_cache_dir = os.path.abspath(repo_cache_dir)
+    state_storage = os.path.abspath(state_storage)
+    tools_repo_dir = os.path.join(repo_cache_dir, 'tools-astro')
+    
+    os.makedirs(repo_cache_dir, exist_ok=True)
+    
+    def git_clone_or_update(local_path, remote, branch='master', origin='origin'):
+        if os.path.isdir(local_path) and os.listdir():
+            os.chdir(local_path)
+            try:
+                res = sp.run(['git', 'remote', 'get-url', '--push', origin], 
+                            check=True, capture_output=True, text=True)
+                if res.stdout.strip() != remote:
+                    raise ValueError
+                sp.run(['git', 'checkout', branch], check=True)
+                sp.run(['git', 'pull', origin, branch], check=True)
+                sp.run(['git', 'remote', 'update', origin, '--prune'])
+            except (sp.CalledProcessError, ValueError):
+                raise RuntimeError('%s is not a valid tools repo', local_path)
+        else:
+            sp.run(['git', 'clone', remote, local_path], check=True)
+                    
+    try:
+        oda_bot_runtime = yaml.safe_load(open(state_storage))
+    except FileNotFoundError:
+        oda_bot_runtime = {}
         
+    if "deployed_tools" not in oda_bot_runtime:
+        oda_bot_runtime["deployed_tools"] = {}
+    deployed_tools = oda_bot_runtime["deployed_tools"]
+
+    git_clone_or_update(tools_repo_dir, tools_repo, tools_repo_branch)
+    os.chdir(tools_repo_dir)
+    sp.run(['git', 'config', 'user.name', git_name], check=True)
+    sp.run(['git', 'config', 'user.email', git_email], check=True)
+    sp.run(['git', 'config', 'credential.helper', f'store --file={os.path.join(repo_cache_dir, ".git-credentials")}'])
+    
+    
+    while True:
+        git_clone_or_update(tools_repo_dir, tools_repo, tools_repo_branch)
+        try:
+            for project in requests.get(f'{renkuapi}groups/{renku_gid}/projects?include_subgroups=yes&order_by=last_activity_at').json():            
+                if re.match(pattern, project['name']) and 'galaxy-tool' in project['topics']:
+                    logger.info("%20s %s", project['name'], project['http_url_to_repo'])
+                    logger.debug("%s", json.dumps(project))
+
+                    last_commit = requests.get(f'{renkuapi}projects/{project["id"]}/repository/commits?per_page=1&page=1').json()[0]
+                    last_commit_created_at = last_commit['created_at']
+
+                    logger.info('last_commit %s from %s', last_commit, last_commit_created_at)
+                    
+                    saved_last_commit_created_at = deployed_tools.get(project['http_url_to_repo'], {}).get('last_commit_created_at', 0)
+                    saved_last_tool_version = deployed_tools.get(project['http_url_to_repo'], {}).get('last_tool_version', '0.0.0+galaxy0')
+                    
+                    logger.info('last_commit_created_at %s saved_last_commit_created_at %s', last_commit_created_at, saved_last_commit_created_at )
+
+                    if last_commit_created_at == saved_last_commit_created_at and not force:
+                        logger.info("no need to deploy this tool")
+                    else:
+                        wf_repo_dir = os.path.join(repo_cache_dir, project['path'])
+                        git_clone_or_update(wf_repo_dir, project['http_url_to_repo'])
+                        
+                        # TODO: better version handling
+                        version_parser = re.compile(r'(?P<maj>\d+)\.(?P<min>\d+)\.(?P<patch>\d+)\+galaxy(?P<suffix>\d+)')
+                        m = version_parser.match(saved_last_tool_version)
+                        new_version = f"{m.group('maj')}.{m.group('min')}.{int(m.group('patch'))+1}+galaxy{m.group('suffix')}"
+                        
+                        req_file = os.path.join(wf_repo_dir, 'requirements.txt') if os.path.isfile(os.path.join(wf_repo_dir, 'requirements.txt')) else None
+                        env_file = os.path.join(wf_repo_dir, 'environment.yml') if os.path.isfile(os.path.join(wf_repo_dir, 'environment.yml')) else None
+                        bib_file = os.path.join(wf_repo_dir, 'citations.bib') if os.path.isfile(os.path.join(wf_repo_dir, 'citations.bib')) else None
+                        help_file = os.path.join(wf_repo_dir, 'galaxy_help.md') if os.path.isfile(os.path.join(wf_repo_dir, 'galaxy_help.md')) else None
+
+                        os.chdir(tools_repo_dir)
+                        upd_branch_name = f"{project['path']}-tool-update"
+                        try:
+                            sp.run(['git', 'checkout', upd_branch_name], check=True)
+                            sp.run(['git', 'pull', 'origin', upd_branch_name])
+                        except sp.CalledProcessError:
+                            sp.run(['git', 'checkout', '-b', upd_branch_name], check=True)
+                        
+                        to_galaxy(wf_repo_dir, 
+                                f"{project['path']}_astro_tool",
+                                os.path.join(tools_repo_dir, 'tools', project['path']),
+                                new_version,
+                                requirements_file=req_file,
+                                conda_environment_file=env_file,
+                                citations_bibfile=bib_file,
+                                help_file=help_file
+                                )
+
+                        if dry_run:
+                            logger.debug(sp.check_output(['git', 'status']))
+                            sp.run(['git', 'clean', '-fd'], check=True)
+                        else:
+                            try:                                
+                                r = sp.run(['git', 'add', '.'], capture_output=True, text=True)
+                                if r.returncode != 0:
+                                    r.check_returncode()    
+                                    
+                                r = sp.run(['git', 'commit', '-m', f"update tool {project['name']}"], capture_output=True, text=True)
+                                if r.returncode == 1:
+                                    changed = False
+                                elif r.returncode != 0:
+                                    r.check_returncode()
+                                else:
+                                    changed = True
+                                    
+                                if changed is True:
+                                    r = sp.run(['git', 'push', '--set-upstream', 'origin', upd_branch_name], 
+                                               capture_output=True, text=True)
+                                    if r.returncode != 0:
+                                        r.check_returncode()    
+                                    
+                                    # TODO: PR
+
+                            except:
+                                logger.error(r.stderr)
+                                raise
+                            finally:
+                                sp.run(['git', 'checkout', tools_repo_branch])
+                                sp.run(['git', 'branch', '-D', upd_branch_name])
+                                sp.run(['git', 'restore', '--staged', '.'])
+                                sp.run(['git', 'clean', '-fd'], check=True)
+                            
+                            if not changed:
+                                continue
+                            deployed_tools[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at,
+                                                                        'last_commit': last_commit['id'],
+                                                                        'last_tool_version': new_version}
+                            
+                            oda_bot_runtime['deployed_tools'] = deployed_tools
+                            with open(state_storage, 'w') as fd:
+                                yaml.dump(oda_bot_runtime, fd)
+                                
+        except Exception:
+            logger.error("unexpected exception: %s", traceback.format_exc())
+            
+        if loop > 0:
+            logger.info("sleeping %s", loop)
+            time.sleep(loop)
+        else:
+            break                        
+                        
+                    
+                              
 
 #TODO:  test service status and dispatcher status
 # oda-api -u https://dispatcher-staging.obsuks1.unige.ch get -i cta-example

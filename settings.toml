@@ -23,3 +23,11 @@ frontend = {instruments_dir = "/frontend-instruments/", deployment = "oda-fronte
 registry = "odahub"
 build_engine = "docker"
 state_storage = {type = "yaml", path = '/oda-bot-runtime-workflows.yaml'}
+
+[nb2galaxy]
+
+tools_repo = "https://github.com/dsavchenko/tools-astro.git"
+tools_repo_branch = 'main'
+repo_cache_path = "/home/dsavchenko/Projects/ESG/nb2galaxy-cache"
+state_storage = "/home/dsavchenko/Projects/ESG/nb2galaxy-cache/oda-bot-runtime-galaxy.yaml"
+git_identity = {name = "ODA bot", email = "noreply@odahub.io"}
