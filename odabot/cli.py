@@ -13,14 +13,14 @@ from datetime import datetime
 import sys 
 import traceback
 
-import markdown
-import rdflib
 import click
 from dynaconf import Dynaconf
 
 logger = logging.getLogger()
 
 try:
+    import markdown
+    import rdflib
     from nb2workflow.deploy import build_container, deploy_k8s, ContainerBuildException
     from nb2workflow import version as nb2wver
     #from nb2workflow.validate import validate, patch_add_tests, patch_normalized_uris
@@ -665,17 +665,22 @@ def verify_workflows(obj):
 @click.pass_obj
 def make_galaxy_tools(obj, dry_run, loop, force, pattern):
     tools_repo = obj['settings'].get('nb2galaxy.tools_repo', "https://github.com/esg-epfl-apc/tools-astro/")
-    tools_repo_branch = obj['settings'].get('nb2galaxy.tools_repo_branch', "main")
+    target_tools_repo = obj['settings'].get('nb2galaxy.target_tools_repo', "https://github.com/esg-epfl-apc/tools-astro.git")
+    target_branch = obj['settings'].get('nb2galaxy.target_branch', "main")
     repo_cache_dir = obj['settings'].get('nb2galaxy.repo_cache_path', "/nb2galaxy-cache")
     state_storage = obj['settings'].get('nb2galaxy.state_storage', '/nb2galaxy-cache/oda-bot-runtime-galaxy.yaml')
     git_name = obj['settings'].get('nb2galaxy.git_identity.name', 'ODA bot')
     git_email = obj['settings'].get('nb2galaxy.git_identity.email', 'noreply@odahub.io')
+    git_credentials = obj['settings'].get('nb2galaxy.git_credentials', os.path.join(os.environ.get('HOME', '/'), '.git-credentials'))
     
     repo_cache_dir = os.path.abspath(repo_cache_dir)
     state_storage = os.path.abspath(state_storage)
     tools_repo_dir = os.path.join(repo_cache_dir, 'tools-astro')
-    
+
     os.makedirs(repo_cache_dir, exist_ok=True)
+    
+    with open(git_credentials) as fd:
+        token = fd.read().split(':')[-1].split('@')[0]
     
     def git_clone_or_update(local_path, remote, branch='master', origin='origin'):
         if os.path.isdir(local_path) and os.listdir():
@@ -697,20 +702,50 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
         oda_bot_runtime = yaml.safe_load(open(state_storage))
     except FileNotFoundError:
         oda_bot_runtime = {}
+    
+    def make_pr(source_repo, source_branch, target_repo, target_branch, title='New PR', body=''):
+        repo_patt = re.compile(r'https://github\.com/(?P<user>[^/]+)/(?P<repo>[^\.]+)\.git')
+        
+        m = repo_patt.match(source_repo)
+        s_user = m.group('user')
+        s_repo = m.group('repo')
+        
+        m = repo_patt.match(target_repo)
+        t_user = m.group('user')
+        t_repo = m.group('repo')
+        
+        api_url = f"https://api.github.com/repos/{t_user}/{t_repo}/pulls"
+        data = {'title': title,
+                'body': body,
+                'head': f'{s_user}:{source_branch}',
+                'base': target_branch}
+        headers = {"Accept": "application/vnd.github+json",
+                   "Authorization": f"Bearer {token}",
+                   "X-GitHub-Api-Version": "2022-11-28"}
+        
+        res = requests.post(api_url, json=data, headers=headers)
+        
+        if res.status_code != 201:
+            raise RuntimeError('Error creating PR')
+        else:
+            return res.json['url']
+        
+    
+    
+    
         
     if "deployed_tools" not in oda_bot_runtime:
         oda_bot_runtime["deployed_tools"] = {}
     deployed_tools = oda_bot_runtime["deployed_tools"]
 
-    git_clone_or_update(tools_repo_dir, tools_repo, tools_repo_branch)
+    git_clone_or_update(tools_repo_dir, tools_repo, target_branch)
     os.chdir(tools_repo_dir)
     sp.run(['git', 'config', 'user.name', git_name], check=True)
     sp.run(['git', 'config', 'user.email', git_email], check=True)
-    sp.run(['git', 'config', 'credential.helper', f'store --file={os.path.join(repo_cache_dir, ".git-credentials")}'])
-    
+    sp.run(['git', 'config', 'credential.helper', f'store --file={git_credentials}'])
     
     while True:
-        git_clone_or_update(tools_repo_dir, tools_repo, tools_repo_branch)
+        git_clone_or_update(tools_repo_dir, tools_repo, target_branch)
         try:
             for project in requests.get(f'{renkuapi}groups/{renku_gid}/projects?include_subgroups=yes&order_by=last_activity_at').json():            
                 if re.match(pattern, project['name']) and 'galaxy-tool' in project['topics']:
@@ -784,13 +819,17 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                     if r.returncode != 0:
                                         r.check_returncode()    
                                     
-                                    # TODO: PR
+                                    make_pr(tools_repo, 
+                                            upd_branch_name, 
+                                            target_tools_repo, 
+                                            target_branch, 
+                                            f"Update tool {project['name']}")
 
                             except:
                                 logger.error(r.stderr)
                                 raise
                             finally:
-                                sp.run(['git', 'checkout', tools_repo_branch])
+                                sp.run(['git', 'checkout', target_branch])
                                 sp.run(['git', 'branch', '-D', upd_branch_name])
                                 sp.run(['git', 'restore', '--staged', '.'])
                                 sp.run(['git', 'clean', '-fd'], check=True)

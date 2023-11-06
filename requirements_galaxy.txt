@@ -1,0 +1,2 @@
+nb2workflow @ git+https://github.com/oda-hub/nb2workflow@galaxy
+oda_api @ git+https://github.com/oda-hub/oda_api@ontology-helper
