@@ -134,8 +134,11 @@ def cli(obj, debug, settings):
     )
 
     obj['debug'] = debug
-    
-    logger.info("components: %s", obj['settings'].components)
+    try:
+        logger.info("components: %s", obj['settings'].components)
+    except AttributeError:
+        pass
+        
 
 
 @cli.command()
