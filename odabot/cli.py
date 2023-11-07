@@ -716,7 +716,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
         m = repo_patt.match(target_repo)
         t_user = m.group('user')
         t_repo = m.group('repo')
-        
+                
         api_url = f"https://api.github.com/repos/{t_user}/{t_repo}/pulls"
         data = {'title': title,
                 'body': body,
@@ -726,12 +726,25 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                    "Authorization": f"Bearer {token}",
                    "X-GitHub-Api-Version": "2022-11-28"}
         
+        res = requests.get(api_url, params={'head': f'{s_user}:{source_branch}', 'state': 'open'}, headers=headers)       
+        if res.status_code == 200:
+            if res.json() != []:
+                logger.info(f"Pull request already exist {res.json()[0]['html_url']}")
+                return res.json()[0]
+        else:
+            raise RuntimeError('Error getting PRs. Status: %s. Response text: %s', 
+                               res.status_code, 
+                               res.text)
+        
         res = requests.post(api_url, json=data, headers=headers)
         
         if res.status_code != 201:
-            raise RuntimeError('Error creating PR')
+            raise RuntimeError('Error creating PR. Status: %s. Response text: %s', 
+                               res.status_code, 
+                               res.text)
         else:
-            return res.json['url']
+            logger.info(f"New PR {res.json()['html_url']}")
+            return res.json()
         
     
     
@@ -782,7 +795,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                         help_file = os.path.join(wf_repo_dir, 'galaxy_help.md') if os.path.isfile(os.path.join(wf_repo_dir, 'galaxy_help.md')) else None
 
                         os.chdir(tools_repo_dir)
-                        upd_branch_name = f"{project['path']}-tool-update"
+                        upd_branch_name = f"auto-update-galaxy-tool-{project['path']}-v{new_version.replace('+', '-')}"
                         try:
                             sp.run(['git', 'checkout', upd_branch_name], check=True)
                             sp.run(['git', 'pull', 'origin', upd_branch_name])
@@ -799,8 +812,10 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                 help_file=help_file
                                 )
 
+                        logger.info("Git status:\n" + sp.check_output(['git', 'status']))
+                        
                         if dry_run:
-                            logger.debug(sp.check_output(['git', 'status']))
+                            logger.warning('Dry run. Cleaning up introduced updates.')
                             sp.run(['git', 'clean', '-fd'], check=True)
                         else:
                             try:                                
@@ -839,6 +854,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                             
                             if not changed:
                                 continue
+                            
                             deployed_tools[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at,
                                                                         'last_commit': last_commit['id'],
                                                                         'last_tool_version': new_version}
