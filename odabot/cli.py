@@ -812,7 +812,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                 help_file=help_file
                                 )
 
-                        logger.info("Git status:\n" + sp.check_output(['git', 'status']))
+                        logger.info("Git status:\n" + sp.check_output(['git', 'status'], text=True))
                         
                         if dry_run:
                             logger.warning('Dry run. Cleaning up introduced updates.')
