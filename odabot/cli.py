@@ -841,7 +841,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                             upd_branch_name, 
                                             target_tools_repo, 
                                             target_branch, 
-                                            f"Update tool {project['name']}")
+                                            f"Update tool {project['name']} to {new_version}")
 
                             except:
                                 logger.error(r.stderr)
