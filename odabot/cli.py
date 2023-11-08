@@ -134,10 +134,7 @@ def cli(obj, debug, settings):
     )
 
     obj['debug'] = debug
-    try:
-        logger.info("components: %s", obj['settings'].components)
-    except AttributeError:
-        pass
+
         
 
 
@@ -184,6 +181,8 @@ def poll_github_events(obj, ctx, source, forget):
     poll_interval_s = 60
         
     logger.info('staring oda-bot')
+    
+    logger.info("components: %s", obj['settings'].components)
 
     try:
         last_event_id = yaml.safe_load(open('oda-bot-runtime.yaml'))[source]['last_event_id']
