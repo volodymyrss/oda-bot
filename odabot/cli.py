@@ -802,9 +802,10 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                             sp.run(['git', 'checkout', '-b', upd_branch_name], check=True)
                         
                         to_galaxy(wf_repo_dir, 
-                                f"{project['path']}_astro_tool",
+                                f"{project['name']}",
                                 os.path.join(tools_repo_dir, 'tools', project['path']),
                                 new_version,
+                                tool_id=f"{project['path']}_astro_tool",
                                 requirements_file=req_file,
                                 conda_environment_file=env_file,
                                 citations_bibfile=bib_file,
