@@ -12,6 +12,7 @@ import requests
 from datetime import datetime
 import sys 
 import traceback
+import xml.etree.ElementTree as ET
 
 import click
 from dynaconf import Dynaconf
@@ -773,7 +774,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                     logger.info('last_commit %s from %s', last_commit, last_commit_created_at)
                     
                     saved_last_commit_created_at = deployed_tools.get(project['http_url_to_repo'], {}).get('last_commit_created_at', 0)
-                    saved_last_tool_version = deployed_tools.get(project['http_url_to_repo'], {}).get('last_tool_version', '0.0.0+galaxy0')
+                    #saved_last_tool_version = deployed_tools.get(project['http_url_to_repo'], {}).get('last_tool_version', '0.0.0+galaxy0')
                     
                     logger.info('last_commit_created_at %s saved_last_commit_created_at %s', last_commit_created_at, saved_last_commit_created_at )
 
@@ -782,18 +783,27 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                     else:
                         wf_repo_dir = os.path.join(repo_cache_dir, project['path'])
                         git_clone_or_update(wf_repo_dir, project['http_url_to_repo'])
-                        
-                        # TODO: better version handling
-                        version_parser = re.compile(r'(?P<maj>\d+)\.(?P<min>\d+)\.(?P<patch>\d+)\+galaxy(?P<suffix>\d+)')
-                        m = version_parser.match(saved_last_tool_version)
-                        new_version = f"{m.group('maj')}.{m.group('min')}.{int(m.group('patch'))+1}+galaxy{m.group('suffix')}"
-                        
+                       
                         req_file = os.path.join(wf_repo_dir, 'requirements.txt') if os.path.isfile(os.path.join(wf_repo_dir, 'requirements.txt')) else None
                         env_file = os.path.join(wf_repo_dir, 'environment.yml') if os.path.isfile(os.path.join(wf_repo_dir, 'environment.yml')) else None
                         bib_file = os.path.join(wf_repo_dir, 'citations.bib') if os.path.isfile(os.path.join(wf_repo_dir, 'citations.bib')) else None
                         help_file = os.path.join(wf_repo_dir, 'galaxy_help.md') if os.path.isfile(os.path.join(wf_repo_dir, 'galaxy_help.md')) else None
 
                         os.chdir(tools_repo_dir)
+                        tool_id = f"{project['path']}_astro_tool"
+                        tool_xml_path = os.path.join(tools_repo_dir, 'tools', project['path'], f"{tool_id}.xml")
+                        if os.path.isfile(tool_xml_path):
+                            tool_xml_root = ET.parse(tool_xml_path).getroot()
+                            master_tool_version = tool_xml_root.attrib['version']
+                            tool_name = tool_xml_root.attrib['name']
+                            
+                            version_parser = re.compile(r'(?P<maj>\d+)\.(?P<min>\d+)\.(?P<patch>\d+)\+galaxy(?P<suffix>\d+)')
+                            m = version_parser.match(master_tool_version)
+                            new_version = f"{m.group('maj')}.{m.group('min')}.{int(m.group('patch'))+1}+galaxy{m.group('suffix')}"
+                        else:
+                            new_version = "0.0.1+galaxy0"
+                            tool_name = f"{project['name']}"
+
                         upd_branch_name = f"auto-update-galaxy-tool-{project['path']}-v{new_version.replace('+', '-')}"
                         try:
                             sp.run(['git', 'checkout', upd_branch_name], check=True)
@@ -802,10 +812,10 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                             sp.run(['git', 'checkout', '-b', upd_branch_name], check=True)
                         
                         to_galaxy(wf_repo_dir, 
-                                f"{project['name']}",
+                                tool_name,
                                 os.path.join(tools_repo_dir, 'tools', project['path']),
                                 tool_version=new_version,
-                                tool_id=f"{project['path']}_astro_tool",
+                                tool_id=tool_id,
                                 requirements_file=req_file,
                                 conda_environment_file=env_file,
                                 citations_bibfile=bib_file,
@@ -823,7 +833,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                 if r.returncode != 0:
                                     r.check_returncode()    
                                     
-                                r = sp.run(['git', 'commit', '-m', f"update tool {project['name']}"], capture_output=True, text=True)
+                                r = sp.run(['git', 'commit', '-m', f"update tool {tool_name}"], capture_output=True, text=True)
                                 if r.returncode == 1:
                                     changed = False
                                 elif r.returncode != 0:
@@ -841,7 +851,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                             upd_branch_name, 
                                             target_tools_repo, 
                                             target_branch, 
-                                            f"Update tool {project['name']} to {new_version}")
+                                            f"Update tool {tool_name} to {new_version}")
 
                             except:
                                 logger.error(r.stderr)
