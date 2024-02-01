@@ -790,7 +790,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                         help_file = os.path.join(wf_repo_dir, 'galaxy_help.md') if os.path.isfile(os.path.join(wf_repo_dir, 'galaxy_help.md')) else None
 
                         os.chdir(tools_repo_dir)
-                        tool_id = f"{project['path']}_astro_tool"
+                        tool_id = re.sub(r'[^a-z0-9_]', '_', f"{project['path']}_astro_tool")
                         tool_xml_path = os.path.join(tools_repo_dir, 'tools', project['path'], f"{tool_id}.xml")
                         if os.path.isfile(tool_xml_path):
                             tool_xml_root = ET.parse(tool_xml_path).getroot()
