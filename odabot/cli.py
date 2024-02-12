@@ -578,8 +578,8 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                         "failed",
                                                         description="Failed generating frontend tab")
                                         
-                                        workflow_update_status[project['http_url_to_repo']]['last_deployment_status'] == 'failed'
-                                        workflow_update_status[project['http_url_to_repo']]['stage_failed'] == 'tab'
+                                        workflow_update_status[project['http_url_to_repo']]['last_deployment_status'] = 'failed'
+                                        workflow_update_status[project['http_url_to_repo']]['stage_failed'] = 'tab'
                                         
                                         send_email(last_commit['committer_email'], 
                                                     f"[ODA-Workflow-Bot] failed to create the frontend tab for {project['name']}", 
