@@ -33,6 +33,7 @@ except ImportError:
     
 try:
     from nb2workflow.galaxy import to_galaxy    
+    import frontmatter
 except ImportError:
     logger.warning('Galaxy dependencies not loaded')
 
@@ -813,11 +814,12 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                             sp.run(['git', 'checkout', '-b', upd_branch_name], check=True)
                         
                         # TODO: it could be optional or partial to preserve some manual additions
-                        shutil.rmtree(os.path.join(tools_repo_dir, 'tools', project['path']))
+                        outd = os.path.join(tools_repo_dir, 'tools', project['path'])
+                        shutil.rmtree(outd)
                         
                         to_galaxy(input_path=wf_repo_dir, 
                                   tool_name=tool_name,
-                                  out_dir=os.path.join(tools_repo_dir, 'tools', project['path']),
+                                  out_dir=outd,
                                   tool_version=new_version,
                                   tool_id=tool_id,
                                   requirements_file=req_file,
@@ -825,6 +827,33 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                   citations_bibfile=bib_file,
                                   help_file=help_file
                                   )
+                        
+                        # creating shed file
+                        if os.path.isfile(os.path.join(wf_repo_dir, '.shed.yml')):
+                            shutil.copyfile(os.path.join(wf_repo_dir, '.shed.yml'),
+                                            os.path.join(outd, '.shed.yml')
+                                            )
+                        else:
+                            shed_content = {
+                                'name': tool_name,
+                                'owner': 'astroteam',
+                                'type': 'unrestricted',
+                                'categories': ['Astronomy'],
+                                'description': tool_name,
+                                'long_description': tool_name,
+                                'homepage_url': None,
+                                'remote_repository_url': 'https://github.com/esg-epfl-apc/tools-astro/tree/main/tools',
+                            }
+                            
+                            if help_file is not None:
+                                fm = frontmatter.load(help_file)
+                                if 'description' in fm.keys():
+                                    shed_content['description'] = fm['description']
+                                    shed_content['long_description'] = fm.get('long_description', fm['description'])
+                            
+                            with open(os.path.join(outd, '.shed.yml'), 'wt') as fd:
+                                yaml.dump(shed_content, fd)
+                            
 
                         logger.info("Git status:\n" + sp.check_output(['git', 'status'], text=True))
                         

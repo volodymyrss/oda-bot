@@ -22,7 +22,8 @@ extras_req = {
         'oda-knowledge-base',
     ],
     'galaxy': [
-        'nb2workflow[galaxy]'
+        'nb2workflow[galaxy]',
+        'python-frontmatter'
     ]
     
 }
