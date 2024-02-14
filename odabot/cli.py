@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import time
 import yaml
 import tempfile
@@ -811,16 +812,19 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                         except sp.CalledProcessError:
                             sp.run(['git', 'checkout', '-b', upd_branch_name], check=True)
                         
-                        to_galaxy(wf_repo_dir, 
-                                tool_name,
-                                os.path.join(tools_repo_dir, 'tools', project['path']),
-                                tool_version=new_version,
-                                tool_id=tool_id,
-                                requirements_file=req_file,
-                                conda_environment_file=env_file,
-                                citations_bibfile=bib_file,
-                                help_file=help_file
-                                )
+                        # TODO: it could be optional or partial to preserve some manual additions
+                        shutil.rmtree(os.path.join(tools_repo_dir, 'tools', project['path']))
+                        
+                        to_galaxy(input_path=wf_repo_dir, 
+                                  tool_name=tool_name,
+                                  out_dir=os.path.join(tools_repo_dir, 'tools', project['path']),
+                                  tool_version=new_version,
+                                  tool_id=tool_id,
+                                  requirements_file=req_file,
+                                  conda_environment_file=env_file,
+                                  citations_bibfile=bib_file,
+                                  help_file=help_file
+                                  )
 
                         logger.info("Git status:\n" + sp.check_output(['git', 'status'], text=True))
                         
