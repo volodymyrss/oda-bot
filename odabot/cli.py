@@ -862,8 +862,8 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                 sp.run(['git', 'restore', '--staged', '.'])
                                 sp.run(['git', 'clean', '-fd'], check=True)
                             
-                            if not changed:
-                                continue
+                            # if not changed:
+                            #     continue
                             
                             deployed_tools[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at,
                                                                         'last_commit': last_commit['id'],
