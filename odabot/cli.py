@@ -765,147 +765,152 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
     while True:
         git_clone_or_update(tools_repo_dir, tools_repo, target_branch)
         try:
-            for project in requests.get(f'{renkuapi}groups/{renku_gid}/projects?include_subgroups=yes&order_by=last_activity_at').json():            
-                if re.match(pattern, project['name']) and 'galaxy-tool' in project['topics']:
-                    logger.info("%20s %s", project['name'], project['http_url_to_repo'])
-                    logger.debug("%s", json.dumps(project))
+            for project in requests.get(f'{renkuapi}groups/{renku_gid}/projects?include_subgroups=yes&order_by=last_activity_at').json():
+                try:    
+                    if re.match(pattern, project['name']) and 'galaxy-tool' in project['topics']:
+                        logger.info("%20s %s", project['name'], project['http_url_to_repo'])
+                        logger.debug("%s", json.dumps(project))
 
-                    last_commit = requests.get(f'{renkuapi}projects/{project["id"]}/repository/commits?per_page=1&page=1').json()[0]
-                    last_commit_created_at = last_commit['created_at']
+                        last_commit = requests.get(f'{renkuapi}projects/{project["id"]}/repository/commits?per_page=1&page=1').json()[0]
+                        last_commit_created_at = last_commit['created_at']
 
-                    logger.info('last_commit %s from %s', last_commit, last_commit_created_at)
-                    
-                    saved_last_commit_created_at = deployed_tools.get(project['http_url_to_repo'], {}).get('last_commit_created_at', 0)
-                    #saved_last_tool_version = deployed_tools.get(project['http_url_to_repo'], {}).get('last_tool_version', '0.0.0+galaxy0')
-                    
-                    logger.info('last_commit_created_at %s saved_last_commit_created_at %s', last_commit_created_at, saved_last_commit_created_at )
+                        logger.info('last_commit %s from %s', last_commit, last_commit_created_at)
+                        
+                        saved_last_commit_created_at = deployed_tools.get(project['http_url_to_repo'], {}).get('last_commit_created_at', 0)
+                        #saved_last_tool_version = deployed_tools.get(project['http_url_to_repo'], {}).get('last_tool_version', '0.0.0+galaxy0')
+                        
+                        logger.info('last_commit_created_at %s saved_last_commit_created_at %s', last_commit_created_at, saved_last_commit_created_at )
 
-                    if last_commit_created_at == saved_last_commit_created_at and not force:
-                        logger.info("no need to deploy this tool")
-                    else:
-                        wf_repo_dir = os.path.join(repo_cache_dir, project['path'])
-                        git_clone_or_update(wf_repo_dir, project['http_url_to_repo'])
-                       
-                        req_file = os.path.join(wf_repo_dir, 'requirements.txt') if os.path.isfile(os.path.join(wf_repo_dir, 'requirements.txt')) else None
-                        env_file = os.path.join(wf_repo_dir, 'environment.yml') if os.path.isfile(os.path.join(wf_repo_dir, 'environment.yml')) else None
-                        bib_file = os.path.join(wf_repo_dir, 'citations.bib') if os.path.isfile(os.path.join(wf_repo_dir, 'citations.bib')) else None
-                        help_file = os.path.join(wf_repo_dir, 'galaxy_help.md') if os.path.isfile(os.path.join(wf_repo_dir, 'galaxy_help.md')) else None
-
-                        os.chdir(tools_repo_dir)
-                        tool_id = re.sub(r'[^a-z0-9_]', '_', f"{project['path']}_astro_tool")
-                        tool_xml_path = os.path.join(tools_repo_dir, 'tools', project['path'], f"{tool_id}.xml")
-                        if os.path.isfile(tool_xml_path):
-                            tool_xml_root = ET.parse(tool_xml_path).getroot()
-                            master_tool_version = tool_xml_root.attrib['version']
-                            tool_name = tool_xml_root.attrib['name']
-                            
-                            version_parser = re.compile(r'(?P<maj>\d+)\.(?P<min>\d+)\.(?P<patch>\d+)\+galaxy(?P<suffix>\d+)')
-                            m = version_parser.match(master_tool_version)
-                            new_version = f"{m.group('maj')}.{m.group('min')}.{int(m.group('patch'))+1}+galaxy{m.group('suffix')}"
+                        if last_commit_created_at == saved_last_commit_created_at and not force:
+                            logger.info("no need to deploy this tool")
                         else:
-                            new_version = "0.0.1+galaxy0"
-                            tool_name = f"{project['name']}"
+                            wf_repo_dir = os.path.join(repo_cache_dir, project['path'])
+                            git_clone_or_update(wf_repo_dir, project['http_url_to_repo'])
+                        
+                            req_file = os.path.join(wf_repo_dir, 'requirements.txt') if os.path.isfile(os.path.join(wf_repo_dir, 'requirements.txt')) else None
+                            env_file = os.path.join(wf_repo_dir, 'environment.yml') if os.path.isfile(os.path.join(wf_repo_dir, 'environment.yml')) else None
+                            bib_file = os.path.join(wf_repo_dir, 'citations.bib') if os.path.isfile(os.path.join(wf_repo_dir, 'citations.bib')) else None
+                            help_file = os.path.join(wf_repo_dir, 'galaxy_help.md') if os.path.isfile(os.path.join(wf_repo_dir, 'galaxy_help.md')) else None
 
-                        upd_branch_name = f"auto-update-galaxy-tool-{project['path']}-v{new_version.replace('+', '-')}"
-                        try:
-                            sp.run(['git', 'checkout', upd_branch_name], check=True)
-                            sp.run(['git', 'pull', 'origin', upd_branch_name])
-                        except sp.CalledProcessError:
-                            sp.run(['git', 'checkout', '-b', upd_branch_name], check=True)
-                        
-                        # TODO: it could be optional or partial to preserve some manual additions
-                        outd = os.path.join(tools_repo_dir, 'tools', project['path'])
-                        shutil.rmtree(outd)
-                        
-                        to_galaxy(input_path=wf_repo_dir, 
-                                  toolname=tool_name,
-                                  out_dir=outd,
-                                  tool_version=new_version,
-                                  tool_id=tool_id,
-                                  requirements_file=req_file,
-                                  conda_environment_file=env_file,
-                                  citations_bibfile=bib_file,
-                                  help_file=help_file
-                                  )
-                        
-                        # creating shed file
-                        if os.path.isfile(os.path.join(wf_repo_dir, '.shed.yml')):
-                            shutil.copyfile(os.path.join(wf_repo_dir, '.shed.yml'),
-                                            os.path.join(outd, '.shed.yml')
-                                            )
-                        else:
-                            shed_content = {
-                                'name': tool_name,
-                                'owner': 'astroteam',
-                                'type': 'unrestricted',
-                                'categories': ['Astronomy'],
-                                'description': tool_name,
-                                'long_description': tool_name,
-                                'homepage_url': None,
-                                'remote_repository_url': 'https://github.com/esg-epfl-apc/tools-astro/tree/main/tools',
-                            }
-                            
-                            if help_file is not None:
-                                fm = frontmatter.load(help_file)
-                                if 'description' in fm.keys():
-                                    shed_content['description'] = fm['description']
-                                    shed_content['long_description'] = fm.get('long_description', fm['description'])
-                            
-                            with open(os.path.join(outd, '.shed.yml'), 'wt') as fd:
-                                yaml.dump(shed_content, fd)
-                            
+                            os.chdir(tools_repo_dir)
+                            tool_id = re.sub(r'[^a-z0-9_]', '_', f"{project['path']}_astro_tool")
+                            tool_xml_path = os.path.join(tools_repo_dir, 'tools', project['path'], f"{tool_id}.xml")
+                            if os.path.isfile(tool_xml_path):
+                                tool_xml_root = ET.parse(tool_xml_path).getroot()
+                                master_tool_version = tool_xml_root.attrib['version']
+                                tool_name = tool_xml_root.attrib['name']
+                                
+                                version_parser = re.compile(r'(?P<maj>\d+)\.(?P<min>\d+)\.(?P<patch>\d+)\+galaxy(?P<suffix>\d+)')
+                                m = version_parser.match(master_tool_version)
+                                new_version = f"{m.group('maj')}.{m.group('min')}.{int(m.group('patch'))+1}+galaxy{m.group('suffix')}"
+                            else:
+                                new_version = "0.0.1+galaxy0"
+                                tool_name = f"{project['name']}"
 
-                        logger.info("Git status:\n" + sp.check_output(['git', 'status'], text=True))
-                        
-                        if dry_run:
-                            logger.warning('Dry run. Cleaning up introduced updates.')
-                            sp.run(['git', 'clean', '-fd'], check=True)
-                        else:
-                            try:                                
-                                r = sp.run(['git', 'add', '.'], capture_output=True, text=True)
-                                if r.returncode != 0:
-                                    r.check_returncode()    
-                                    
-                                r = sp.run(['git', 'commit', '-m', f"update tool {tool_name}"], capture_output=True, text=True)
-                                if r.returncode == 1:
-                                    changed = False
-                                elif r.returncode != 0:
-                                    r.check_returncode()
-                                else:
-                                    changed = True
-                                    
-                                if changed is True:
-                                    r = sp.run(['git', 'push', '--set-upstream', 'origin', upd_branch_name], 
-                                               capture_output=True, text=True)
+                            upd_branch_name = f"auto-update-galaxy-tool-{project['path']}-v{new_version.replace('+', '-')}"
+                            try:
+                                sp.run(['git', 'checkout', upd_branch_name], check=True)
+                                sp.run(['git', 'pull', 'origin', upd_branch_name])
+                            except sp.CalledProcessError:
+                                sp.run(['git', 'checkout', '-b', upd_branch_name], check=True)
+                            
+                            # TODO: it could be optional or partial to preserve some manual additions
+                            outd = os.path.join(tools_repo_dir, 'tools', project['path'])
+                            shutil.rmtree(outd)
+                            
+                            to_galaxy(input_path=wf_repo_dir, 
+                                    toolname=tool_name,
+                                    out_dir=outd,
+                                    tool_version=new_version,
+                                    tool_id=tool_id,
+                                    requirements_file=req_file,
+                                    conda_environment_file=env_file,
+                                    citations_bibfile=bib_file,
+                                    help_file=help_file
+                                    )
+                            
+                            # creating shed file
+                            if os.path.isfile(os.path.join(wf_repo_dir, '.shed.yml')):
+                                shutil.copyfile(os.path.join(wf_repo_dir, '.shed.yml'),
+                                                os.path.join(outd, '.shed.yml')
+                                                )
+                            else:
+                                shed_content = {
+                                    'name': tool_name,
+                                    'owner': 'astroteam',
+                                    'type': 'unrestricted',
+                                    'categories': ['Astronomy'],
+                                    'description': tool_name,
+                                    'long_description': tool_name,
+                                    'homepage_url': None,
+                                    'remote_repository_url': 'https://github.com/esg-epfl-apc/tools-astro/tree/main/tools',
+                                }
+                                
+                                if help_file is not None:
+                                    fm = frontmatter.load(help_file)
+                                    if 'description' in fm.keys():
+                                        shed_content['description'] = fm['description']
+                                        shed_content['long_description'] = fm.get('long_description', fm['description'])
+                                
+                                with open(os.path.join(outd, '.shed.yml'), 'wt') as fd:
+                                    yaml.dump(shed_content, fd)
+                                
+
+                            logger.info("Git status:\n" + sp.check_output(['git', 'status'], text=True))
+                            
+                            if dry_run:
+                                logger.warning('Dry run. Cleaning up introduced updates.')
+                                sp.run(['git', 'clean', '-fd'], check=True)
+                            else:
+                                try:                                
+                                    r = sp.run(['git', 'add', '.'], capture_output=True, text=True)
                                     if r.returncode != 0:
                                         r.check_returncode()    
-                                    
-                                    make_pr(tools_repo, 
-                                            upd_branch_name, 
-                                            target_tools_repo, 
-                                            target_branch, 
-                                            f"Update tool {tool_name} to {new_version}")
+                                        
+                                    r = sp.run(['git', 'commit', '-m', f"update tool {tool_name}"], capture_output=True, text=True)
+                                    if r.returncode == 1:
+                                        changed = False
+                                    elif r.returncode != 0:
+                                        r.check_returncode()
+                                    else:
+                                        changed = True
+                                        
+                                    if changed is True:
+                                        r = sp.run(['git', 'push', '--set-upstream', 'origin', upd_branch_name], 
+                                                capture_output=True, text=True)
+                                        if r.returncode != 0:
+                                            r.check_returncode()    
+                                        
+                                        make_pr(tools_repo, 
+                                                upd_branch_name, 
+                                                target_tools_repo, 
+                                                target_branch, 
+                                                f"Update tool {tool_name} to {new_version}")
 
-                            except:
-                                logger.error(r.stderr)
-                                raise
-                            finally:
-                                sp.run(['git', 'checkout', target_branch])
-                                sp.run(['git', 'branch', '-D', upd_branch_name])
-                                sp.run(['git', 'restore', '--staged', '.'])
-                                sp.run(['git', 'clean', '-fd'], check=True)
-                            
-                            # if not changed:
-                            #     continue
-                            
-                            deployed_tools[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at,
-                                                                        'last_commit': last_commit['id'],
-                                                                        'last_tool_version': new_version}
-                            
-                            oda_bot_runtime['deployed_tools'] = deployed_tools
-                            with open(state_storage, 'w') as fd:
-                                yaml.dump(oda_bot_runtime, fd)
+                                except:
+                                    logger.error(r.stderr)
+                                    raise
+                                finally:
+                                    sp.run(['git', 'checkout', target_branch])
+                                    sp.run(['git', 'branch', '-D', upd_branch_name])
+                                    sp.run(['git', 'restore', '--staged', '.'])
+                                    sp.run(['git', 'clean', '-fd'], check=True)
                                 
+                                # if not changed:
+                                #     continue
+                                
+                                deployed_tools[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at,
+                                                                            'last_commit': last_commit['id'],
+                                                                            'last_tool_version': new_version}
+                                
+                                oda_bot_runtime['deployed_tools'] = deployed_tools
+                                with open(state_storage, 'w') as fd:
+                                    yaml.dump(oda_bot_runtime, fd)
+                except:                    
+                    logger.error("unexpected exception: %s", traceback.format_exc())
+                    logger.error("continue with the next repo")
+                    continue
+                    
         except Exception:
             logger.error("unexpected exception: %s", traceback.format_exc())
             
