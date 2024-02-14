@@ -836,7 +836,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                                 )
                             else:
                                 shed_content = {
-                                    'name': tool_name,
+                                    'name': tool_id,
                                     'owner': 'astroteam',
                                     'type': 'unrestricted',
                                     'categories': ['Astronomy'],
