@@ -818,7 +818,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                         shutil.rmtree(outd)
                         
                         to_galaxy(input_path=wf_repo_dir, 
-                                  tool_name=tool_name,
+                                  toolname=tool_name,
                                   out_dir=outd,
                                   tool_version=new_version,
                                   tool_id=tool_id,
