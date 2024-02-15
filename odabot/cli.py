@@ -867,7 +867,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                     if r.returncode != 0:
                                         r.check_returncode()    
                                         
-                                    r = sp.run(['git', 'commit', '-m', f"update tool {tool_name}"], capture_output=True, text=True)
+                                    r = sp.run(['git', 'commit', '-m', 'automatic update', '-m', f"following {last_commit['web_url']}"], capture_output=True, text=True)
                                     if r.returncode == 1:
                                         changed = False
                                     elif r.returncode != 0:
