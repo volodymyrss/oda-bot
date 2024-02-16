@@ -13,8 +13,7 @@ name: Publish Docker image
 on:
   push:
     branches:
-      - main
-      - build-image
+      - '*'
 
 jobs:
   push_to_registry:
