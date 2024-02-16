@@ -581,15 +581,15 @@ def update_workflows(obj, dry_run, force, loop, pattern):
 
                                         workflow_update_status[project['http_url_to_repo']]['last_deployment_status'] == 'success'
 
-                                    except:
+                                    except Exception as e:
                                         set_commit_state(project['id'], 
                                                         last_commit['id'], 
                                                         "frontend_tab",
                                                         "failed",
                                                         description="Failed generating frontend tab")
                                         
-                                        workflow_update_status[project['http_url_to_repo']]['last_deployment_status'] == 'failed'
-                                        workflow_update_status[project['http_url_to_repo']]['stage_failed'] == 'tab'
+                                        workflow_update_status[project['http_url_to_repo']]['last_deployment_status'] = 'failed'
+                                        workflow_update_status[project['http_url_to_repo']]['stage_failed'] = 'tab'
                                         
                                         send_email(last_commit['committer_email'], 
                                                     f"[ODA-Workflow-Bot] failed to create the frontend tab for {project['name']}", 
@@ -603,7 +603,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                     f"[ODA-Workflow-Bot] error creating frontend tab for {project['name']}",
                                                     traceback.format_exc())
                                         # TODO: sentry
-                                        logger.error("exception while generating tab: %s", repr(e))
+                                        logger.exception("exception while generating tab: %s", repr(e))
 
                                     else:
                                         set_commit_state(project['id'], 
