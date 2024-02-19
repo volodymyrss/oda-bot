@@ -816,7 +816,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                             
                             # TODO: it could be optional or partial to preserve some manual additions
                             outd = os.path.join(tools_repo_dir, 'tools', project['path'])
-                            shutil.rmtree(outd)
+                            shutil.rmtree(outd, ignore_errors=True)
                             
                             to_galaxy(input_path=wf_repo_dir, 
                                     toolname=tool_name,
