@@ -506,11 +506,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                             logger.info('Deployment info %s', deployment_info)
                             
                             if workflow_update_status[project['http_url_to_repo']]['last_deployment_status'] == 'success':
-                                
-                                logger.info("updated: will reload nb2workflow-plugin")
-                                res = requests.get(f"{dispatcher_url.strip('/')}/reload-plugin/dispatcher_plugin_nb2workflow")
-                                assert res.status_code == 200
-                                
+                                                               
                                 # TODO: check live
                                 # oda-api -u staging get -i cta-example
                     
