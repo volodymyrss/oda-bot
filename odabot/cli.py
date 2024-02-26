@@ -786,11 +786,17 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                         else:
                             wf_repo_dir = os.path.join(repo_cache_dir, project['path'])
                             git_clone_or_update(wf_repo_dir, project['http_url_to_repo'])
-                        
-                            req_file = os.path.join(wf_repo_dir, 'requirements.txt') if os.path.isfile(os.path.join(wf_repo_dir, 'requirements.txt')) else None
-                            env_file = os.path.join(wf_repo_dir, 'environment.yml') if os.path.isfile(os.path.join(wf_repo_dir, 'environment.yml')) else None
-                            bib_file = os.path.join(wf_repo_dir, 'citations.bib') if os.path.isfile(os.path.join(wf_repo_dir, 'citations.bib')) else None
-                            help_file = os.path.join(wf_repo_dir, 'galaxy_help.md') if os.path.isfile(os.path.join(wf_repo_dir, 'galaxy_help.md')) else None
+
+                            def repo_file_path_if_available(filename):
+                                if os.path.isfile(os.path.join(wf_repo_dir, filename)):
+                                    return os.path.join(wf_repo_dir, filename)
+                                else:
+                                    return None
+                                
+                            req_file = repo_file_path_if_available('requirements.txt')
+                            env_file = repo_file_path_if_available('environment.yml')
+                            bib_file = repo_file_path_if_available('citations.bib')
+                            help_file = repo_file_path_if_available('galaxy_help.md')
 
                             os.chdir(tools_repo_dir)
                             tool_id = re.sub(r'[^a-z0-9_]', '_', f"{project['path']}_astro_tool")
