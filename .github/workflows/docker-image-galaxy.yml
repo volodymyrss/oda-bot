@@ -12,10 +12,13 @@ name: Publish Docker image for Galaxy bot
 on:
   push:
     branches:
-      - 'master'
+      - master
   pull_request:
     types:
-      - 'labeled'
+      - labeled
+      - opened
+      - synchronize
+      - reopened
 
 
 
