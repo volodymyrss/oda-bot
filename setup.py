@@ -1,23 +1,32 @@
 from setuptools import setup, find_packages
 
 install_req = [
-    'oda-knowledge-base',
     'pyyaml',
     'click',
     'requests',
     'dynaconf',
-    'rdflib',
-    'nb2workflow',
-    'oda_api',
-    'cwltool',
-    'mmoda_tab_generator',
-    'markdown',
-    'markdown-katex'
 ]
 
-test_req = [
-]
-
+extras_req = {
+    'test': [
+        'pytest'
+    ],
+    'k8sdeploy': [
+        'rdflib',
+        'nb2workflow[k8s]',
+        'oda_api',
+        'cwltool',
+        'mmoda_tab_generator',
+        'markdown',
+        'markdown-katex',
+        'oda-knowledge-base',
+    ],
+    'galaxy': [
+        'nb2workflow[galaxy]',
+        'python-frontmatter'
+    ]
+    
+}
 
 setup(name='oda-bot',
       version="0.1.0",
@@ -28,7 +37,5 @@ setup(name='oda-bot',
       entry_points={'console_scripts': ['odabot=odabot.cli:main']},
       include_package_data=True,
       install_requires=install_req,
-      extras_require={
-          'test': test_req
-      }
+      extras_require=extras_req
       )
