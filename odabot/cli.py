@@ -37,10 +37,6 @@ try:
 except ImportError:
     logger.warning('Galaxy dependencies not loaded')
 
-
-renkuapi = "https://gitlab.renkulab.io/api/v4/"
-renku_gid = 5606
-
 def send_email(_to, subject, text, attachments=None, extra_emails=[]):
     if isinstance(_to, str):
         _to = [_to]
@@ -92,7 +88,7 @@ def send_email(_to, subject, text, attachments=None, extra_emails=[]):
         logger.error('Exception while sending email: %s', e)    
 
 
-def set_commit_state(proj_id, commit_sha, name, state, target_url=None, description=None):
+def set_commit_state(gitlab_api_url, proj_id, commit_sha, name, state, target_url=None, description=None):
     gitlab_api_token = os.getenv("GITLAB_API_TOKEN")
     if gitlab_api_token is None:
         logger.warning("Gitlab api token not set. Skipping commit state update.")
@@ -102,7 +98,7 @@ def set_commit_state(proj_id, commit_sha, name, state, target_url=None, descript
         params['target_url'] = target_url
     if description is not None:
         params['description'] = description
-    res = requests.post(f'{renkuapi}/projects/{proj_id}/statuses/{commit_sha}',
+    res = requests.post(f'{gitlab_api_url}/projects/{proj_id}/statuses/{commit_sha}',
                         params = params,
                         headers = {'PRIVATE-TOKEN': gitlab_api_token})
     if res.status_code >= 300:
@@ -265,6 +261,7 @@ def update_workflow(last_commit,
                     dispatcher_deployment,
                     build_engine,
                     cleanup,
+                    gitlab_api_url,
                     extra_emails=[]):
     deployed_workflows = {}
     deployment_info = None
@@ -292,7 +289,8 @@ def update_workflow(last_commit,
         try:
             # build
             bstart = datetime.now()
-            set_commit_state(project['id'], 
+            set_commit_state(gitlab_api_url, 
+                             project['id'], 
                              last_commit['id'], 
                              "build",
                              "running",
@@ -306,7 +304,8 @@ def update_workflow(last_commit,
                                              namespace = deployment_namespace,
                                              nb2wversion=os.environ.get('ODA_WF_NB2W_VERSION', nb2wver()))
             except:
-                set_commit_state(project['id'], 
+                set_commit_state(gitlab_api_url, 
+                                 project['id'], 
                                  last_commit['id'], 
                                  "build",
                                  "failed",
@@ -318,7 +317,8 @@ def update_workflow(last_commit,
                     hub_url = f"https://hub.docker.com/r/{container_info['image'].split(':')[0]}"
                 else:
                     hub_url = None # no universal way to construct clickable url 
-                set_commit_state(project['id'], 
+                set_commit_state(gitlab_api_url, 
+                                 project['id'], 
                                  last_commit['id'], 
                                  "build",
                                  "success",
@@ -327,7 +327,8 @@ def update_workflow(last_commit,
                                  target_url=hub_url)
 
             #deploy
-            set_commit_state(project['id'], 
+            set_commit_state(gitlab_api_url, 
+                             project['id'], 
                              last_commit['id'], 
                              "deploy",
                              "running",
@@ -339,14 +340,16 @@ def update_workflow(last_commit,
                                             namespace=deployment_namespace, 
                                             check_live_through=dispatcher_deployment)    
             except:
-                set_commit_state(project['id'], 
+                set_commit_state(gitlab_api_url, 
+                                 project['id'], 
                                  last_commit['id'], 
                                  "deploy",
                                  "failed",
                                  description="ODA-bot unable to deploy the workflow. An e-mail with details has been sent.")
                 raise
             else:
-                set_commit_state(project['id'], 
+                set_commit_state(gitlab_api_url, 
+                                 project['id'], 
                                  last_commit['id'], 
                                  "deploy",
                                  "success",
@@ -408,11 +411,12 @@ def update_workflow(last_commit,
                                                                 oda:deployment_namespace "{deployment_namespace}";
                                                                 oda:deployment_name "{deployment_info['deployment_name']}" .  
             ''')
-            set_commit_state(project['id'], 
-                last_commit['id'], 
-                "register",
-                "success",
-                description=f"ODA-bot have successfully registered workflow in ODA KG")
+            set_commit_state(gitlab_api_url, 
+                             project['id'], 
+                             last_commit['id'], 
+                             "register",
+                             "success",
+                             description=f"ODA-bot have successfully registered workflow in ODA KG")
             
             deployed_workflows[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at, 
                                                                'last_deployment_status': 'success'}
@@ -452,6 +456,9 @@ def update_workflows(obj, dry_run, force, loop, pattern):
     
     admin_emails = obj['settings'].get('admin_emails', [])
     
+    gitlab_api_url = obj['settings'].get('gitlab.api_url', "https://gitlab.renkulab.io/api/v4/")
+    gitlab_gid = obj['settings'].get('gitlab.gid', 5606)
+    
     if obj['settings'].get('nb2workflow.state_storage.type', 'yaml') == 'yaml':
         state_storage = obj['settings'].get('nb2workflow.state_storage.path', 'oda-bot-runtime-workflows.yaml')
     else:
@@ -473,14 +480,14 @@ def update_workflows(obj, dry_run, force, loop, pattern):
 
             deployed_workflows = oda_bot_runtime["deployed_workflows"]
 
-            for project in requests.get(f'{renkuapi}groups/{renku_gid}/projects?include_subgroups=yes&order_by=last_activity_at').json():            
+            for project in requests.get(f'{gitlab_api_url}groups/{gitlab_gid}/projects?include_subgroups=yes&order_by=last_activity_at').json():            
              
                 if re.match(pattern, project['name']) and 'live-workflow' in project['topics']:                
                     logger.info("%20s  ago %s", project['name'], project['http_url_to_repo'])
                     logger.info("%20s", project['topics'])
                     logger.debug("%s", json.dumps(project))
 
-                    last_commit = requests.get(f'{renkuapi}projects/{project["id"]}/repository/commits?per_page=1&page=1').json()[0]
+                    last_commit = requests.get(f'{gitlab_api_url}projects/{project["id"]}/repository/commits?per_page=1&page=1').json()[0]
                     last_commit_created_at = last_commit['created_at']
 
                     logger.info('last_commit %s from %s', last_commit, last_commit_created_at)
@@ -502,15 +509,16 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                             logger.info("would deploy this workflow")
                         else:
                             workflow_update_status, deployment_info = update_workflow(last_commit, 
-                                                                     last_commit_created_at, 
-                                                                     project, 
-                                                                     k8s_namespace, 
-                                                                     odakb_sparql, 
-                                                                     container_registry,
-                                                                     dispatcher_deployment,
-                                                                     build_engine,
-                                                                     cleanup = False if obj['debug'] else True,
-                                                                     extra_emails = admin_emails)
+                                                                                      last_commit_created_at, 
+                                                                                      project, 
+                                                                                      k8s_namespace, 
+                                                                                      odakb_sparql, 
+                                                                                      container_registry,
+                                                                                      dispatcher_deployment,
+                                                                                      build_engine,
+                                                                                      cleanup=False if obj['debug'] else True,
+                                                                                      gitlab_api_url=gitlab_api_url,
+                                                                                      extra_emails=admin_emails)
 
                             logger.info('Workflow update status %s', workflow_update_status)
                             logger.info('Deployment info %s', deployment_info)
@@ -527,14 +535,15 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                 # TODO: make configurable; consider it to be on k8s volume
                                 
                                 if frontend_instruments_dir:
-                                    set_commit_state(project['id'], 
-                                                    last_commit['id'], 
-                                                    "frontend_tab",
-                                                    "running",
-                                                    description="Generating frontend tab")
+                                    set_commit_state(gitlab_api_url, 
+                                                     project['id'], 
+                                                     last_commit['id'], 
+                                                     "frontend_tab",
+                                                     "running",
+                                                     description="Generating frontend tab")
                                     try:
                                         acknowl = f'Service generated from <a href="{project["http_url_to_repo"]}" target="_blank">the repository</a>'
-                                        res = requests.get(f'{renkuapi}projects/{project["id"]}/repository/files/acknowledgements.md/raw?ref=master')
+                                        res = requests.get(f'{gitlab_api_url}projects/{project["id"]}/repository/files/acknowledgements.md/raw?ref=master')
                                         if res.status_code == 200:
                                             logger.info('Acknowledgements found in repo. Converting')
                                             acknowl = res.text
@@ -549,7 +558,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                 break                                     
                                         
                                         help_html = None
-                                        res = requests.get(f'{renkuapi}projects/{project["id"]}/repository/files/mmoda_help_page.md/raw')
+                                        res = requests.get(f'{gitlab_api_url}projects/{project["id"]}/repository/files/mmoda_help_page.md/raw')
                                         if res.status_code == 200:
                                             logger.info('Help found in repo. Converting')
                                             help_md = res.text
@@ -582,11 +591,12 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                         workflow_update_status[project['http_url_to_repo']]['last_deployment_status'] == 'success'
 
                                     except Exception as e:
-                                        set_commit_state(project['id'], 
-                                                        last_commit['id'], 
-                                                        "frontend_tab",
-                                                        "failed",
-                                                        description="Failed generating frontend tab")
+                                        set_commit_state(gitlab_api_url, 
+                                                         project['id'], 
+                                                         last_commit['id'], 
+                                                         "frontend_tab",
+                                                         "failed",
+                                                         description="Failed generating frontend tab")
                                         
                                         workflow_update_status[project['http_url_to_repo']]['last_deployment_status'] = 'failed'
                                         workflow_update_status[project['http_url_to_repo']]['stage_failed'] = 'tab'
@@ -606,12 +616,13 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                         logger.exception("exception while generating tab: %s", repr(e))
 
                                     else:
-                                        set_commit_state(project['id'], 
-                                                        last_commit['id'], 
-                                                        "frontend_tab",
-                                                        "success",
-                                                        description="Frontend tab generated",
-                                                        target_url=frontend_url)
+                                        set_commit_state(gitlab_api_url, 
+                                                         project['id'], 
+                                                         last_commit['id'], 
+                                                         "frontend_tab",
+                                                         "success",
+                                                         description="Frontend tab generated",
+                                                         target_url=frontend_url)
                                         
                                         send_email(last_commit['committer_email'], 
                                                 f"[ODA-Workflow-Bot] deployed {project['name']}", 
@@ -681,6 +692,9 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
     repo_cache_dir = os.path.abspath(repo_cache_dir)
     state_storage = os.path.abspath(state_storage)
     tools_repo_dir = os.path.join(repo_cache_dir, 'tools-astro')
+    
+    gitlab_api_url = obj['settings'].get('gitlab.api_url', "https://gitlab.renkulab.io/api/v4/")
+    gitlab_gid = obj['settings'].get('gitlab.gid', 5606)
 
     os.makedirs(repo_cache_dir, exist_ok=True)
     
@@ -765,13 +779,13 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
     while True:
         git_clone_or_update(tools_repo_dir, tools_repo, target_branch)
         try:
-            for project in requests.get(f'{renkuapi}groups/{renku_gid}/projects?include_subgroups=yes&order_by=last_activity_at').json():
+            for project in requests.get(f'{gitlab_api_url}groups/{gitlab_gid}/projects?include_subgroups=yes&order_by=last_activity_at').json():
                 try:    
                     if re.match(pattern, project['name']) and 'galaxy-tool' in project['topics']:
                         logger.info("%20s %s", project['name'], project['http_url_to_repo'])
                         logger.debug("%s", json.dumps(project))
 
-                        last_commit = requests.get(f'{renkuapi}projects/{project["id"]}/repository/commits?per_page=1&page=1').json()[0]
+                        last_commit = requests.get(f'{gitlab_api_url}projects/{project["id"]}/repository/commits?per_page=1&page=1').json()[0]
                         last_commit_created_at = last_commit['created_at']
 
                         logger.info('last_commit %s from %s', last_commit, last_commit_created_at)
