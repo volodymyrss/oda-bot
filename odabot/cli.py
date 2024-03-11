@@ -835,7 +835,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                             outd = os.path.join(tools_repo_dir, 'tools', project['path'])
                             shutil.rmtree(outd, ignore_errors=True)
                             
-                            repo_files_baseurl = f"{project['web_url']}/-/raw/{project['default_branch']}/"
+                            repo_files_baseurl = f"{project['web_url']}/-/raw/{last_commit['id']}/"
                             
                             to_galaxy(input_path=wf_repo_dir, 
                                       toolname=tool_name,
