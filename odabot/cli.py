@@ -835,6 +835,8 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                             outd = os.path.join(tools_repo_dir, 'tools', project['path'])
                             shutil.rmtree(outd, ignore_errors=True)
                             
+                            repo_files_baseurl = f"{project['web_url']}/-/raw/{project['default_branch']}/"
+                            
                             to_galaxy(input_path=wf_repo_dir, 
                                       toolname=tool_name,
                                       out_dir=outd,
@@ -845,6 +847,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                       citations_bibfile=bib_file,
                                       help_file=help_file,
                                       available_channels=available_channels,
+                                      test_data_baseurl=repo_files_baseurl
                                       )
                             
                             # creating shed file
