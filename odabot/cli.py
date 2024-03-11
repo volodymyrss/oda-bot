@@ -684,6 +684,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
     git_name = obj['settings'].get('nb2galaxy.git_identity.name', 'ODA bot')
     git_email = obj['settings'].get('nb2galaxy.git_identity.email', 'noreply@odahub.io')
     git_credentials = obj['settings'].get('nb2galaxy.git_credentials', os.path.join(os.environ.get('HOME', '/'), '.git-credentials'))
+    available_channels = obj['settings'].get('nb2galaxy.conda_channels', ['conda-forge', 'denysos'])
     
     repo_cache_dir = os.path.abspath(repo_cache_dir)
     state_storage = os.path.abspath(state_storage)
@@ -835,15 +836,16 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                             shutil.rmtree(outd, ignore_errors=True)
                             
                             to_galaxy(input_path=wf_repo_dir, 
-                                    toolname=tool_name,
-                                    out_dir=outd,
-                                    tool_version=new_version,
-                                    tool_id=tool_id,
-                                    requirements_file=req_file,
-                                    conda_environment_file=env_file,
-                                    citations_bibfile=bib_file,
-                                    help_file=help_file
-                                    )
+                                      toolname=tool_name,
+                                      out_dir=outd,
+                                      tool_version=new_version,
+                                      tool_id=tool_id,
+                                      requirements_file=req_file,
+                                      conda_environment_file=env_file,
+                                      citations_bibfile=bib_file,
+                                      help_file=help_file,
+                                      available_channels=available_channels,
+                                      )
                             
                             # creating shed file
                             if os.path.isfile(os.path.join(wf_repo_dir, '.shed.yml')):
