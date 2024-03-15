@@ -17,6 +17,7 @@ import xml.etree.ElementTree as ET
 
 import click
 from dynaconf import Dynaconf
+from dynaconf.vendor.box import BoxList
 
 logger = logging.getLogger()
 
@@ -684,7 +685,11 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
     git_name = obj['settings'].get('nb2galaxy.git_identity.name', 'ODA bot')
     git_email = obj['settings'].get('nb2galaxy.git_identity.email', 'noreply@odahub.io')
     git_credentials = obj['settings'].get('nb2galaxy.git_credentials', os.path.join(os.environ.get('HOME', '/'), '.git-credentials'))
-    available_channels = obj['settings'].get('nb2galaxy.conda_channels', ['conda-forge', 'denysos'])
+    available_channels = obj['settings'].get('nb2galaxy.conda_channels', ['conda-forge'])
+    if isinstance(available_channels, BoxList):
+        available_channels = available_channels.to_list()
+    elif isinstance(available_channels, str):
+        available_channels = available_channels.split(',')
     
     repo_cache_dir = os.path.abspath(repo_cache_dir)
     state_storage = os.path.abspath(state_storage)
