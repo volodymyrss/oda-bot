@@ -2,7 +2,7 @@ FROM python:3.9
 
 COPY . /source
 
-# RUN pip install git+https://github.com/oda-hub/nb2workflow@master#egg=nb2workflow[galaxy]
+RUN pip install git+https://github.com/oda-hub/nb2workflow@master#egg=nb2workflow[galaxy]
 RUN pip install /source[galaxy] && rm -r /source
 
 # Add Tini
