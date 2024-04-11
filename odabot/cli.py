@@ -415,7 +415,7 @@ def update_workflow(last_commit,
                                     <https://schema.org/creativeWorkStatus> "{creative_work_status}".  
                 '''
             
-            sparql_obj.insert()
+            sparql_obj.insert(kg_record)
             set_commit_state(gitlab_api_url, 
                              project['id'], 
                              last_commit['id'], 
