@@ -263,7 +263,8 @@ def update_workflow(last_commit,
                     build_engine,
                     cleanup,
                     gitlab_api_url,
-                    extra_emails=[]):
+                    extra_emails=[],
+                    creative_work_status = "development"):
     deployed_workflows = {}
     deployment_info = None
 
@@ -404,14 +405,17 @@ def update_workflow(last_commit,
             
             
         else:
-            sparql_obj.insert(f'''
+            kg_record = f'''
                 {rdflib.URIRef(project['http_url_to_repo']).n3()} a oda:WorkflowService;
-                                                                oda:last_activity_timestamp "{last_commit_created_at}";
-                                                                oda:last_deployed_timestamp "{datetime.now().timestamp()}";
-                                                                oda:service_name "{project['name'].lower().replace(' ', '_').replace('-', '_')}";
-                                                                oda:deployment_namespace "{deployment_namespace}";
-                                                                oda:deployment_name "{deployment_info['deployment_name']}" .  
-            ''')
+                                    oda:last_activity_timestamp "{last_commit_created_at}";
+                                    oda:last_deployed_timestamp "{datetime.now().timestamp()}";
+                                    oda:service_name "{project['name'].lower().replace(' ', '_').replace('-', '_')}";
+                                    oda:deployment_namespace "{deployment_namespace}";
+                                    oda:deployment_name "{deployment_info['deployment_name']}";
+                                    <https://schema.org/creativeWorkStatus> "{creative_work_status}".  
+                '''
+            
+            sparql_obj.insert(kg_record)
             set_commit_state(gitlab_api_url, 
                              project['id'], 
                              last_commit['id'], 
@@ -459,6 +463,8 @@ def update_workflows(obj, dry_run, force, loop, pattern):
     
     gitlab_api_url = obj['settings'].get('gitlab.api_url', "https://gitlab.renkulab.io/api/v4/")
     gitlab_gid = obj['settings'].get('gitlab.gid', 5606)
+    
+    default_creative_status = obj['settings'].get('nb2workflow.default_creative_status', 'development')
     
     if obj['settings'].get('nb2workflow.state_storage.type', 'yaml') == 'yaml':
         state_storage = obj['settings'].get('nb2workflow.state_storage.path', 'oda-bot-runtime-workflows.yaml')
@@ -519,7 +525,8 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                                                       build_engine,
                                                                                       cleanup=False if obj['debug'] else True,
                                                                                       gitlab_api_url=gitlab_api_url,
-                                                                                      extra_emails=admin_emails)
+                                                                                      extra_emails=admin_emails,
+                                                                                      creative_work_status=default_creative_status)
 
                             logger.info('Workflow update status %s', workflow_update_status)
                             logger.info('Deployment info %s', deployment_info)
