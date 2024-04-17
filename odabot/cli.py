@@ -489,7 +489,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
 
             for project in requests.get(f'{gitlab_api_url}groups/{gitlab_gid}/projects?include_subgroups=yes&order_by=last_activity_at').json():            
              
-                if re.match(pattern, project['name']) and 'live-workflow' in project['topics']:                
+                if re.match(pattern, project['name']) and ('live-workflow' in project['topics'] or 'live-workflow-public' in project['topics']):                
                     logger.info("%20s  ago %s", project['name'], project['http_url_to_repo'])
                     logger.info("%20s", project['topics'])
                     logger.debug("%s", json.dumps(project))
@@ -515,6 +515,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                         if dry_run:
                             logger.info("would deploy this workflow")
                         else:
+                            creative_status = "production" if 'live-workflow-public' in project['topics'] else default_creative_status
                             workflow_update_status, deployment_info = update_workflow(last_commit, 
                                                                                       last_commit_created_at, 
                                                                                       project, 
@@ -526,7 +527,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                                                       cleanup=False if obj['debug'] else True,
                                                                                       gitlab_api_url=gitlab_api_url,
                                                                                       extra_emails=admin_emails,
-                                                                                      creative_work_status=default_creative_status)
+                                                                                      creative_work_status=creative_status)
 
                             logger.info('Workflow update status %s', workflow_update_status)
                             logger.info('Deployment info %s', deployment_info)
