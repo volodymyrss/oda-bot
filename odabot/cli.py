@@ -516,6 +516,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                             logger.info("would deploy this workflow")
                         else:
                             creative_status = "production" if 'live-workflow-public' in project['topics'] else default_creative_status
+                            logger.info("will deploy this workflow, creative_status=%s, topics=%s", creative_status, project['topics'])
                             workflow_update_status, deployment_info = update_workflow(last_commit, 
                                                                                       last_commit_created_at, 
                                                                                       project, 
