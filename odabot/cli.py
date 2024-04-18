@@ -488,6 +488,10 @@ def update_workflows(obj, dry_run, force, loop, pattern):
             deployed_workflows = oda_bot_runtime["deployed_workflows"]
 
             for project in requests.get(f'{gitlab_api_url}groups/{gitlab_gid}/projects?include_subgroups=yes&order_by=last_activity_at').json():            
+                if 'live-workflow-public' in project['topics']:
+                    project['creative_status'] = "production"
+                else:
+                    project['creative_status'] = default_creative_status
              
                 if re.match(pattern, project['name']) and ('live-workflow' in project['topics'] or 'live-workflow-public' in project['topics']):                
                     logger.info("%20s  ago %s", project['name'], project['http_url_to_repo'])
@@ -515,8 +519,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                         if dry_run:
                             logger.info("would deploy this workflow")
                         else:
-                            creative_status = "production" if 'live-workflow-public' in project['topics'] else default_creative_status
-                            logger.info("will deploy this workflow, creative_status=%s, topics=%s", creative_status, project['topics'])
+                            logger.info("will deploy this workflow, creative_status=%s, topics=%s", project['creative_status'], project['topics'])
                             workflow_update_status, deployment_info = update_workflow(last_commit, 
                                                                                       last_commit_created_at, 
                                                                                       project, 
@@ -528,7 +531,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                                                       cleanup=False if obj['debug'] else True,
                                                                                       gitlab_api_url=gitlab_api_url,
                                                                                       extra_emails=admin_emails,
-                                                                                      creative_work_status=creative_status)
+                                                                                      creative_work_status=project['creative_status'])
 
                             logger.info('Workflow update status %s', workflow_update_status)
                             logger.info('Deployment info %s', deployment_info)
@@ -582,7 +585,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                         frontend_name = instr_name, 
                                                         title = project['name'], 
                                                         messenger = messenger,
-                                                        roles = '' if project.get('workflow_status') == "production" else 'oda workflow developer',
+                                                        roles = '' if project.get('creative_status') == "production" else 'oda workflow developer',
                                                         form_dispatcher_url = 'dispatch-data/run_analysis',
                                                         weight = 200, # TODO: how to guess the best weight?
                                                         citation = acknowl,
