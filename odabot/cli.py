@@ -469,8 +469,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
     if obj['settings'].get('nb2workflow.state_storage.type', 'yaml') == 'yaml':
         state_storage = obj['settings'].get('nb2workflow.state_storage.path', 'oda-bot-runtime-workflows.yaml')
     else:
-        raise NotImplementedError('unknown bot state storage type: %s', 
-                                  obj['settings'].get('nb2workflow.state_storage.type'))
+        raise NotImplementedError(f"unknown bot state storage type: {obj['settings'].get('nb2workflow.state_storage.type')}")
 
     while True:
         try:
@@ -715,9 +714,16 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
     with open(git_credentials) as fd:
         token = fd.read().split(':')[-1].split('@')[0]
     
-    def git_clone_or_update(local_path, remote, branch='master', origin='origin'):
+    def git_clone_or_update(local_path, remote, branch=None, origin='origin'):
         if os.path.isdir(local_path) and os.listdir():
             os.chdir(local_path)
+            if branch is None:
+                # determine the default branch automatically
+                outp = sp.run(['git', 'remote', 'show', origin], check=True, capture_output=True)
+                m = re.search(r'^\s*(\w+ )*HEAD( \w+)*\s?:\s?(?P<branch>\w+)', outp.stdout.decode(), re.MULTILINE)
+                if m is None: 
+                    raise RuntimeError(f"Can't determine default branch for remote {remote}.")
+                branch = m.group('branch')
             try:
                 res = sp.run(['git', 'remote', 'get-url', '--push', origin], 
                             check=True, capture_output=True, text=True)
@@ -727,9 +733,11 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                 sp.run(['git', 'pull', origin, branch], check=True)
                 sp.run(['git', 'remote', 'update', origin, '--prune'])
             except (sp.CalledProcessError, ValueError):
-                raise RuntimeError('%s is not a valid tools repo', local_path)
+                raise RuntimeError(f'{local_path} is not a valid tools repo')
         else:
             sp.run(['git', 'clone', remote, local_path], check=True)
+            if branch is not None:
+                sp.run(['git', 'checkout', branch], check=True)
                     
     try:
         oda_bot_runtime = yaml.safe_load(open(state_storage))
@@ -762,16 +770,12 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                 logger.info(f"Pull request already exist {res.json()[0]['html_url']}")
                 return res.json()[0]
         else:
-            raise RuntimeError('Error getting PRs. Status: %s. Response text: %s', 
-                               res.status_code, 
-                               res.text)
+            raise RuntimeError(f'Error getting PRs. Status: {res.status_code}. Response text: {res.text}')
         
         res = requests.post(api_url, json=data, headers=headers)
         
         if res.status_code != 201:
-            raise RuntimeError('Error creating PR. Status: %s. Response text: %s', 
-                               res.status_code, 
-                               res.text)
+            raise RuntimeError(f'Error creating PR. Status: {res.status_code}. Response text: {res.text}')
         else:
             logger.info(f"New PR {res.json()['html_url']}")
             return res.json()
