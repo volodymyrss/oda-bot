@@ -948,9 +948,12 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                 oda_bot_runtime['deployed_tools'] = deployed_tools
                                 with open(state_storage, 'w') as fd:
                                     yaml.dump(oda_bot_runtime, fd)
-                except:                    
+                except:
                     logger.error("unexpected exception: %s", traceback.format_exc())
+                    logger.error("Cleanup all changes in the repo directory")
+                    sp.run(['git', 'clean', '-fd'])
                     logger.error("continue with the next repo")
+
                     continue
                     
         except Exception:
