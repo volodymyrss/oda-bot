@@ -15,7 +15,7 @@ on:
     branches:
       - '*'
   schedule:
-    - cron: '11 02 * * *'
+    - cron: '11 05 * * *'
 
 jobs:
   push_to_registry:
