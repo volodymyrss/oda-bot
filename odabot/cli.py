@@ -576,7 +576,10 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                             logger.debug('Help html: %s', help_html)
                                         
                                         instr_name = project['name'].lower().replace(' ', '_').replace('-', '_')
-                                        
+
+                                        instrument_version_link = last_commit.get('web-url', None)
+                                        instrument_version = last_commit.get('short_id', None)
+
                                         logger.info('Generating frontend tab')
                                         generator = MMODATabGenerator(dispatcher_url)
                                         generator.generate(instrument_name = instr_name, 
@@ -588,6 +591,8 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                         form_dispatcher_url = 'dispatch-data/run_analysis',
                                                         weight = 200, # TODO: how to guess the best weight?
                                                         citation = acknowl,
+                                                        instrument_version = instrument_version,
+                                                        instrument_version_link = instrument_version_link,
                                                         help_page = help_html) 
                                         
                                         sp.check_output(["kubectl", "exec", #"-it", 
