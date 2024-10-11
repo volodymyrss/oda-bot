@@ -719,7 +719,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
     with open(git_credentials) as fd:
         token = fd.read().split(':')[-1].split('@')[0]
     
-    def git_clone_or_update(local_path, remote, branch=None, origin='origin', pre_cleanup=False):
+    def git_clone_or_update(local_path, remote, branch=None, origin='origin', pre_cleanup=True):
         if os.path.isdir(local_path) and os.listdir():
             os.chdir(local_path)
             try:
@@ -945,6 +945,8 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                     logger.error(r.stderr)
                                     raise
                                 finally:
+                                    sp.run(['git', 'restore', '--staged', '.'])
+                                    sp.run(['git', 'clean', '-fd'], check=True)
                                     sp.run(['git', 'checkout', target_branch])
                                     sp.run(['git', 'branch', '-D', upd_branch_name])
                                     sp.run(['git', 'restore', '--staged', '.'])
