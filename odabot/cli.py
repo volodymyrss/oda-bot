@@ -14,6 +14,7 @@ from datetime import datetime
 import sys 
 import traceback
 import xml.etree.ElementTree as ET
+from glob import glob
 
 import click
 from dynaconf import Dynaconf
@@ -908,7 +909,26 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                 
                                 with open(os.path.join(outd, '.shed.yml'), 'wt') as fd:
                                     yaml.dump(shed_content, fd)
-                                
+
+                            if help_file is not None:
+                                fm = frontmatter.load(help_file)
+                                if fm.get('additional_files', None):
+                                    globlist = fm['additional_files']
+                                    if isinstance(globlist, str):
+                                        globlist = [ globlist ]
+                                    elif isinstance(globlist, list):
+                                        pass
+                                    else:
+                                        raise ValueError("Wrong specification of additional files")
+                                    
+                                    for fileglob in globlist:
+                                        addfiles = glob(fileglob, root_dir=wf_repo_dir, recursive=True)
+                                        for fp in addfiles:
+                                            shutil.copyfile(
+                                                os.path.join(wf_repo_dir, fp),
+                                                os.path.join(outd, fp)
+                                                )
+                                    
 
                             logger.info("Git status:\n" + sp.check_output(['git', 'status'], text=True))
                             
