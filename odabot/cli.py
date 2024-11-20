@@ -757,7 +757,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
     except FileNotFoundError:
         oda_bot_runtime = {}
     
-    def make_pr(source_repo, source_branch, target_repo, target_branch, title='New PR', body=''):
+    def make_pr(source_repo, source_branch, target_repo, target_branch, title='New PR', body='', dry_run=False):
         repo_patt = re.compile(r'https://github\.com/(?P<user>[^/]+)/(?P<repo>[^\.]+)\.git')
         
         m = repo_patt.match(source_repo)
@@ -785,18 +785,17 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
         else:
             raise RuntimeError(f'Error getting PRs. Status: {res.status_code}. Response text: {res.text}')
         
-        res = requests.post(api_url, json=data, headers=headers)
-        
-        if res.status_code != 201:
-            raise RuntimeError(f'Error creating PR. Status: {res.status_code}. Response text: {res.text}')
-        else:
-            logger.info(f"New PR {res.json()['html_url']}")
-            return res.json()
-        
-    
-    
-    
-        
+        if not dry_run:
+            res = requests.post(api_url, json=data, headers=headers)
+            
+            if res.status_code != 201:
+                raise RuntimeError(f'Error creating PR. Status: {res.status_code}. Response text: {res.text}')
+            else:
+                logger.info(f"New PR {res.json()['html_url']}")
+                return res.json()
+
+
+
     if "deployed_tools" not in oda_bot_runtime:
         oda_bot_runtime["deployed_tools"] = {}
     deployed_tools = oda_bot_runtime["deployed_tools"]
@@ -829,6 +828,14 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                         if last_commit_created_at == saved_last_commit_created_at and not force:
                             logger.info("no need to deploy this tool")
                         else:
+                            set_commit_state(
+                                        gitlab_api_url=gitlab_api_url,
+                                        proj_id=project['id'],
+                                        commit_sha=last_commit['id'],
+                                        name='Galaxy tool',
+                                        state='running',
+                                        )
+                            
                             wf_repo_dir = os.path.join(repo_cache_dir, project['path'])
                             git_clone_or_update(wf_repo_dir, project['http_url_to_repo'])
 
@@ -941,7 +948,12 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                     if r.returncode != 0:
                                         r.check_returncode()    
                                         
-                                    r = sp.run(['git', 'commit', '-m', 'automatic update', '-m', f"following {last_commit['web_url']}"], capture_output=True, text=True)
+                                    r = sp.run(
+                                        ['git', 'commit', '-m', 'automatic update', '-m', f"following {last_commit['web_url']}"], 
+                                        capture_output=True, 
+                                        text=True
+                                        )
+                                    
                                     if r.returncode == 1:
                                         changed = False
                                     elif r.returncode != 0:
@@ -949,21 +961,76 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                     else:
                                         changed = True
                                         
-                                    if changed is True:
+                                    if changed:
                                         r = sp.run(['git', 'push', '--set-upstream', 'origin', upd_branch_name], 
                                                 capture_output=True, text=True)
                                         if r.returncode != 0:
-                                            r.check_returncode()    
-                                        
-                                        make_pr(tools_repo, 
-                                                upd_branch_name, 
-                                                target_tools_repo, 
-                                                target_branch, 
-                                                f"Update tool {tool_name} to {new_version}")
+                                            r.check_returncode()
+  
+                                        pr = make_pr(
+                                            tools_repo, 
+                                            upd_branch_name, 
+                                            target_tools_repo, 
+                                            target_branch, 
+                                            f"Update tool {tool_name} to {new_version}",
+                                            )
 
-                                except:
-                                    logger.error(r.stderr)
+                                        set_commit_state(
+                                            gitlab_api_url=gitlab_api_url,
+                                            proj_id=project['id'],
+                                            commit_sha=last_commit['id'],
+                                            name='Galaxy tool',
+                                            state='success',
+                                            description='Galaxy tool updated at GitHub',
+                                            target_url=pr['html_url']
+                                            )
+
+                                    else:
+                                        pr = make_pr(
+                                            tools_repo, 
+                                            upd_branch_name, 
+                                            target_tools_repo, 
+                                            target_branch, 
+                                            f"Update tool {tool_name} to {new_version}",
+                                            dry_run=True
+                                            )
+                                                                            
+                                        kwargs = {}
+                                        if pr is not None:
+                                            kwargs['target_url'] = pr['html_url']
+
+                                        set_commit_state(
+                                            gitlab_api_url=gitlab_api_url,
+                                            proj_id=project['id'],
+                                            commit_sha=last_commit['id'],
+                                            name='Galaxy tool',
+                                            state='skipped',
+                                            description='No updates in Galaxy tool',
+                                            **kwargs
+                                            )                                        
+                                    
+                                except Exception as e:
+                                    if isinstance(e, sp.SubprocessError):
+                                        logger.error(r.stderr)
+
+                                    kwargs = {}
+                                    try:
+                                        kwargs['target_url'] = pr['html_url']
+                                    except:
+                                        pass
+
+                                    set_commit_state(
+                                        gitlab_api_url=gitlab_api_url,
+                                        proj_id=project['id'],
+                                        commit_sha=last_commit['id'],
+                                        name='Galaxy tool',
+                                        state='failed',
+                                        description=str(e),
+                                        **kwargs
+                                        )
+                                    
                                     raise
+
                                 finally:
                                     sp.run(['git', 'restore', '--staged', '.'])
                                     sp.run(['git', 'clean', '-fd'], check=True)
