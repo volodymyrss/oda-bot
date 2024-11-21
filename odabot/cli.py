@@ -1044,7 +1044,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                         commit_sha=last_commit['id'],
                                         name='Galaxy tool',
                                         state='failed',
-                                        description=str(e),
+                                        description=repr(e),
                                         **kwargs
                                         )
                                     
@@ -1078,7 +1078,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                             commit_sha=last_commit['id'],
                             name='Galaxy tool',
                             state='failed',
-                            description=str(e),
+                            description=repr(e),
                             )
                     except NameError:
                         # if last_commit is unbound for any reason (normally should be set)
