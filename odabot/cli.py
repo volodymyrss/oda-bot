@@ -940,7 +940,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                     for fileglob in globlist:
                                         addfiles = glob(fileglob, root_dir=wf_repo_dir, recursive=True)
                                         for fp in addfiles:
-                                            shutil.copyfile(
+                                            shutil.copytree(
                                                 os.path.join(wf_repo_dir, fp),
                                                 os.path.join(outd, fp)
                                                 )
