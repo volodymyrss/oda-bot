@@ -1058,9 +1058,22 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                 oda_bot_runtime['deployed_tools'] = deployed_tools
                                 with open(state_storage, 'w') as fd:
                                     yaml.dump(oda_bot_runtime, fd)
-                except:
+                except Exception as e:
                     logger.error("unexpected exception: %s", traceback.format_exc())
                     logger.error("Cleanup all changes in the repo directory")
+                    try: 
+                        set_commit_state(
+                            gitlab_api_url=gitlab_api_url,
+                            proj_id=project['id'],
+                            commit_sha=last_commit['id'],
+                            name='Galaxy tool',
+                            state='failed',
+                            description=str(e),
+                            )
+                    except NameError:
+                        # if last_commit is unbound for any reason (normally should be set)
+                        pass
+
                     sp.run(['git', 'clean', '-fd'])
                     logger.error("continue with the next repo")
 
