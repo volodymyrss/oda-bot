@@ -95,6 +95,15 @@ def set_commit_state(gitlab_api_url, proj_id, commit_sha, name, state, target_ur
     if gitlab_api_token is None:
         logger.warning("Gitlab api token not set. Skipping commit state update.")
         return
+    
+    res = requests.get(
+        f'{gitlab_api_url}/projects/{proj_id}/repository/commits/{commit_sha}/statuses',
+        headers = {'PRIVATE-TOKEN': gitlab_api_token})
+    this_states = [s['status'] for s in res.json() if s['name'] == name]
+    if len(this_states)==1 and this_states[0] == state:
+        logger.info(f'Pipeline {name} state {state} is already set.')
+        return
+    
     params = {'name': f"MMODA: {name}", 'state': state}
     if target_url is not None: 
         params['target_url'] = target_url
