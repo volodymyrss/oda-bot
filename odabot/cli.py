@@ -100,6 +100,8 @@ def get_commit_state(gitlab_api_url, proj_id, commit_sha, name):
         f'{gitlab_api_url}/projects/{proj_id}/repository/commits/{commit_sha}/statuses',
         headers = {'PRIVATE-TOKEN': gitlab_api_token})
     
+    logger.info(res.json())
+
     this_states = [s['status'] for s in res.json() if s['name'] == name]
 
     if len(this_states)==1:
