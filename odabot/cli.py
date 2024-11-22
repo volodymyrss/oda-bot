@@ -90,18 +90,38 @@ def send_email(_to, subject, text, attachments=None, extra_emails=[]):
         logger.error('Exception while sending email: %s', e)    
 
 
+def get_commit_state(gitlab_api_url, proj_id, commit_sha, name):
+    gitlab_api_token = os.getenv("GITLAB_API_TOKEN")
+    if gitlab_api_token is None:
+        logger.warning("Gitlab api token not set. Skipping get commit state.")
+        return
+    
+    res = requests.get(
+        f'{gitlab_api_url}/projects/{proj_id}/repository/commits/{commit_sha}/statuses',
+        headers = {'PRIVATE-TOKEN': gitlab_api_token})
+    
+    this_states = [s['status'] for s in res.json() if s['name'] == name]
+
+    if len(this_states)==1:
+        logger.info(f'Pipeline {name} state is {this_states[0]}')
+        return this_states[0]
+
+
 def set_commit_state(gitlab_api_url, proj_id, commit_sha, name, state, target_url=None, description=None):
     gitlab_api_token = os.getenv("GITLAB_API_TOKEN")
     if gitlab_api_token is None:
         logger.warning("Gitlab api token not set. Skipping commit state update.")
         return
     
-    res = requests.get(
-        f'{gitlab_api_url}/projects/{proj_id}/repository/commits/{commit_sha}/statuses',
-        headers = {'PRIVATE-TOKEN': gitlab_api_token})
-    this_states = [s['status'] for s in res.json() if s['name'] == name]
-    if len(this_states)==1 and this_states[0] == state:
-        logger.info(f'Pipeline {name} state {state} is already set.')
+    current_state = get_commit_state(
+        gitlab_api_url=gitlab_api_url,
+        proj_id=proj_id,
+        commit_sha=commit_sha,
+        name = name
+    )
+
+    if current_state == state:
+        logger.info(f'Pipeline {name} state {state} is already set. Skipping.')
         return
     
     params = {'name': f"MMODA: {name}", 'state': state}
@@ -837,6 +857,17 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                         if last_commit_created_at == saved_last_commit_created_at and not force:
                             logger.info("no need to deploy this tool")
                         else:
+                            current_state = get_commit_state(
+                                gitlab_api_url=gitlab_api_url,
+                                proj_id=project['id'],
+                                commit_sha=last_commit['id'],
+                                name = 'Galaxy tool'
+                            )
+
+                            if current_state == 'failed' and os.getenv('FORCE_FAILED_GALAXY_TOOLS', '0')=='0':
+                                logger.info(f"Galaxy tool workflow was failed for {last_commit['id']}. Skipping.")
+                                continue
+
                             set_commit_state(
                                         gitlab_api_url=gitlab_api_url,
                                         proj_id=project['id'],
