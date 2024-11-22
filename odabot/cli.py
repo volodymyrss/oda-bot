@@ -100,8 +100,6 @@ def get_commit_state(gitlab_api_url, proj_id, commit_sha, name):
         f'{gitlab_api_url}/projects/{proj_id}/repository/commits/{commit_sha}/statuses',
         headers = {'PRIVATE-TOKEN': gitlab_api_token})
     
-    logger.info(res.json())
-
     this_states = [s['status'] for s in res.json() if s['name'] == name]
 
     if len(this_states)==1:
@@ -126,7 +124,7 @@ def set_commit_state(gitlab_api_url, proj_id, commit_sha, name, state, target_ur
         logger.info(f'Pipeline {name} state {state} is already set. Skipping.')
         return
     
-    params = {'name': f"MMODA: {name}", 'state': state}
+    params = {'name': "{name}", 'state': state}
     if target_url is not None: 
         params['target_url'] = target_url
     if description is not None:
@@ -326,7 +324,7 @@ def update_workflow(last_commit,
             set_commit_state(gitlab_api_url, 
                              project['id'], 
                              last_commit['id'], 
-                             "build",
+                             "MMODA: build",
                              "running",
                              description="ODA-bot is building a container")
             try:
@@ -341,7 +339,7 @@ def update_workflow(last_commit,
                 set_commit_state(gitlab_api_url, 
                                  project['id'], 
                                  last_commit['id'], 
-                                 "build",
+                                 "MMODA: build",
                                  "failed",
                                  description="ODA-bot unable to build the container. An e-mail with details has been sent.")
                 raise
@@ -354,7 +352,7 @@ def update_workflow(last_commit,
                 set_commit_state(gitlab_api_url, 
                                  project['id'], 
                                  last_commit['id'], 
-                                 "build",
+                                 "MMODA: build",
                                  "success",
                                  description=(f"ODA-bot have successfully built the container in {(datetime.now() - bstart).seconds} seconds. "
                                               f"Image pushed to registry as {container_info['image']}"),
@@ -364,7 +362,7 @@ def update_workflow(last_commit,
             set_commit_state(gitlab_api_url, 
                              project['id'], 
                              last_commit['id'], 
-                             "deploy",
+                             "MMODA: deploy",
                              "running",
                              description="ODA-bot is deploying the workflow")
             try:
@@ -377,7 +375,7 @@ def update_workflow(last_commit,
                 set_commit_state(gitlab_api_url, 
                                  project['id'], 
                                  last_commit['id'], 
-                                 "deploy",
+                                 "MMODA: deploy",
                                  "failed",
                                  description="ODA-bot unable to deploy the workflow. An e-mail with details has been sent.")
                 raise
@@ -385,7 +383,7 @@ def update_workflow(last_commit,
                 set_commit_state(gitlab_api_url, 
                                  project['id'], 
                                  last_commit['id'], 
-                                 "deploy",
+                                 "MMODA: deploy",
                                  "success",
                                  description=f"ODA-bot have successfully deployed {workflow_name} to {deployment_namespace} namespace")
         
@@ -451,7 +449,7 @@ def update_workflow(last_commit,
             set_commit_state(gitlab_api_url, 
                              project['id'], 
                              last_commit['id'], 
-                             "register",
+                             "MMODA: register",
                              "success",
                              description=f"ODA-bot have successfully registered workflow in ODA KG")
             
@@ -578,7 +576,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                     set_commit_state(gitlab_api_url, 
                                                      project['id'], 
                                                      last_commit['id'], 
-                                                     "frontend_tab",
+                                                     "MMODA: frontend_tab",
                                                      "running",
                                                      description="Generating frontend tab")
                                     try:
@@ -639,7 +637,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                         set_commit_state(gitlab_api_url, 
                                                          project['id'], 
                                                          last_commit['id'], 
-                                                         "frontend_tab",
+                                                         "MMODA: frontend_tab",
                                                          "failed",
                                                          description="Failed generating frontend tab")
                                         
@@ -664,7 +662,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                         set_commit_state(gitlab_api_url, 
                                                          project['id'], 
                                                          last_commit['id'], 
-                                                         "frontend_tab",
+                                                         "MMODA: frontend_tab",
                                                          "success",
                                                          description="Frontend tab generated",
                                                          target_url=frontend_url)
