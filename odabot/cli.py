@@ -1000,7 +1000,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                             commit_sha=last_commit['id'],
                                             name='Galaxy tool',
                                             state='success',
-                                            description='Galaxy tool updated at GitHub',
+                                            description='Galaxy tool updated on GitHub',
                                             target_url=pr['html_url']
                                             )
 
