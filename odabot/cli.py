@@ -124,7 +124,7 @@ def set_commit_state(gitlab_api_url, proj_id, commit_sha, name, state, target_ur
         logger.info(f'Pipeline {name} state {state} is already set. Skipping.')
         return
     
-    params = {'name': "{name}", 'state': state}
+    params = {'name': name, 'state': state}
     if target_url is not None: 
         params['target_url'] = target_url
     if description is not None:
