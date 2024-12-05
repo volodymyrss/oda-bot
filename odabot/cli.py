@@ -90,12 +90,41 @@ def send_email(_to, subject, text, attachments=None, extra_emails=[]):
         logger.error('Exception while sending email: %s', e)    
 
 
+def get_commit_state(gitlab_api_url, proj_id, commit_sha, name):
+    gitlab_api_token = os.getenv("GITLAB_API_TOKEN")
+    if gitlab_api_token is None:
+        logger.warning("Gitlab api token not set. Skipping get commit state.")
+        return
+    
+    res = requests.get(
+        f'{gitlab_api_url}/projects/{proj_id}/repository/commits/{commit_sha}/statuses',
+        headers = {'PRIVATE-TOKEN': gitlab_api_token})
+    
+    this_states = [s['status'] for s in res.json() if s['name'] == name]
+
+    if len(this_states)==1:
+        logger.info(f'Pipeline {name} state is {this_states[0]}')
+        return this_states[0]
+
+
 def set_commit_state(gitlab_api_url, proj_id, commit_sha, name, state, target_url=None, description=None):
     gitlab_api_token = os.getenv("GITLAB_API_TOKEN")
     if gitlab_api_token is None:
         logger.warning("Gitlab api token not set. Skipping commit state update.")
         return
-    params = {'name': f"MMODA: {name}", 'state': state}
+    
+    current_state = get_commit_state(
+        gitlab_api_url=gitlab_api_url,
+        proj_id=proj_id,
+        commit_sha=commit_sha,
+        name = name
+    )
+
+    if current_state == state:
+        logger.info(f'Pipeline {name} state {state} is already set. Skipping.')
+        return
+    
+    params = {'name': name, 'state': state}
     if target_url is not None: 
         params['target_url'] = target_url
     if description is not None:
@@ -295,7 +324,7 @@ def update_workflow(last_commit,
             set_commit_state(gitlab_api_url, 
                              project['id'], 
                              last_commit['id'], 
-                             "build",
+                             "MMODA: build",
                              "running",
                              description="ODA-bot is building a container")
             try:
@@ -310,7 +339,7 @@ def update_workflow(last_commit,
                 set_commit_state(gitlab_api_url, 
                                  project['id'], 
                                  last_commit['id'], 
-                                 "build",
+                                 "MMODA: build",
                                  "failed",
                                  description="ODA-bot unable to build the container. An e-mail with details has been sent.")
                 raise
@@ -323,7 +352,7 @@ def update_workflow(last_commit,
                 set_commit_state(gitlab_api_url, 
                                  project['id'], 
                                  last_commit['id'], 
-                                 "build",
+                                 "MMODA: build",
                                  "success",
                                  description=(f"ODA-bot have successfully built the container in {(datetime.now() - bstart).seconds} seconds. "
                                               f"Image pushed to registry as {container_info['image']}"),
@@ -333,7 +362,7 @@ def update_workflow(last_commit,
             set_commit_state(gitlab_api_url, 
                              project['id'], 
                              last_commit['id'], 
-                             "deploy",
+                             "MMODA: deploy",
                              "running",
                              description="ODA-bot is deploying the workflow")
             try:
@@ -346,7 +375,7 @@ def update_workflow(last_commit,
                 set_commit_state(gitlab_api_url, 
                                  project['id'], 
                                  last_commit['id'], 
-                                 "deploy",
+                                 "MMODA: deploy",
                                  "failed",
                                  description="ODA-bot unable to deploy the workflow. An e-mail with details has been sent.")
                 raise
@@ -354,7 +383,7 @@ def update_workflow(last_commit,
                 set_commit_state(gitlab_api_url, 
                                  project['id'], 
                                  last_commit['id'], 
-                                 "deploy",
+                                 "MMODA: deploy",
                                  "success",
                                  description=f"ODA-bot have successfully deployed {workflow_name} to {deployment_namespace} namespace")
         
@@ -420,7 +449,7 @@ def update_workflow(last_commit,
             set_commit_state(gitlab_api_url, 
                              project['id'], 
                              last_commit['id'], 
-                             "register",
+                             "MMODA: register",
                              "success",
                              description=f"ODA-bot have successfully registered workflow in ODA KG")
             
@@ -547,7 +576,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                     set_commit_state(gitlab_api_url, 
                                                      project['id'], 
                                                      last_commit['id'], 
-                                                     "frontend_tab",
+                                                     "MMODA: frontend_tab",
                                                      "running",
                                                      description="Generating frontend tab")
                                     try:
@@ -608,7 +637,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                         set_commit_state(gitlab_api_url, 
                                                          project['id'], 
                                                          last_commit['id'], 
-                                                         "frontend_tab",
+                                                         "MMODA: frontend_tab",
                                                          "failed",
                                                          description="Failed generating frontend tab")
                                         
@@ -633,7 +662,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                         set_commit_state(gitlab_api_url, 
                                                          project['id'], 
                                                          last_commit['id'], 
-                                                         "frontend_tab",
+                                                         "MMODA: frontend_tab",
                                                          "success",
                                                          description="Frontend tab generated",
                                                          target_url=frontend_url)
@@ -757,7 +786,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
     except FileNotFoundError:
         oda_bot_runtime = {}
     
-    def make_pr(source_repo, source_branch, target_repo, target_branch, title='New PR', body=''):
+    def make_pr(source_repo, source_branch, target_repo, target_branch, title='New PR', body='', dry_run=False):
         repo_patt = re.compile(r'https://github\.com/(?P<user>[^/]+)/(?P<repo>[^\.]+)\.git')
         
         m = repo_patt.match(source_repo)
@@ -785,18 +814,17 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
         else:
             raise RuntimeError(f'Error getting PRs. Status: {res.status_code}. Response text: {res.text}')
         
-        res = requests.post(api_url, json=data, headers=headers)
-        
-        if res.status_code != 201:
-            raise RuntimeError(f'Error creating PR. Status: {res.status_code}. Response text: {res.text}')
-        else:
-            logger.info(f"New PR {res.json()['html_url']}")
-            return res.json()
-        
-    
-    
-    
-        
+        if not dry_run:
+            res = requests.post(api_url, json=data, headers=headers)
+            
+            if res.status_code != 201:
+                raise RuntimeError(f'Error creating PR. Status: {res.status_code}. Response text: {res.text}')
+            else:
+                logger.info(f"New PR {res.json()['html_url']}")
+                return res.json()
+
+
+
     if "deployed_tools" not in oda_bot_runtime:
         oda_bot_runtime["deployed_tools"] = {}
     deployed_tools = oda_bot_runtime["deployed_tools"]
@@ -829,6 +857,25 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                         if last_commit_created_at == saved_last_commit_created_at and not force:
                             logger.info("no need to deploy this tool")
                         else:
+                            current_state = get_commit_state(
+                                gitlab_api_url=gitlab_api_url,
+                                proj_id=project['id'],
+                                commit_sha=last_commit['id'],
+                                name = 'Galaxy tool'
+                            )
+
+                            if current_state == 'failed' and os.getenv('FORCE_FAILED_GALAXY_TOOLS', '0')=='0':
+                                logger.info(f"Galaxy tool workflow was failed for {last_commit['id']}. Skipping.")
+                                continue
+
+                            set_commit_state(
+                                        gitlab_api_url=gitlab_api_url,
+                                        proj_id=project['id'],
+                                        commit_sha=last_commit['id'],
+                                        name='Galaxy tool',
+                                        state='running',
+                                        )
+                            
                             wf_repo_dir = os.path.join(repo_cache_dir, project['path'])
                             git_clone_or_update(wf_repo_dir, project['http_url_to_repo'])
 
@@ -924,11 +971,21 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                     for fileglob in globlist:
                                         addfiles = glob(fileglob, root_dir=wf_repo_dir, recursive=True)
                                         for fp in addfiles:
-                                            shutil.copyfile(
-                                                os.path.join(wf_repo_dir, fp),
-                                                os.path.join(outd, fp)
-                                                )
-                                    
+                                            try:
+                                                if os.path.isfile(os.path.join(wf_repo_dir, fp)):
+                                                    shutil.copyfile(
+                                                        os.path.join(wf_repo_dir, fp),
+                                                        os.path.join(outd, fp)
+                                                        )
+                                                else:
+                                                    shutil.copytree(
+                                                        os.path.join(wf_repo_dir, fp),
+                                                        os.path.join(outd, fp),
+                                                        dirs_exist_ok=True
+                                                        )
+                                            except FileExistsError:
+                                                pass
+
 
                             logger.info("Git status:\n" + sp.check_output(['git', 'status'], text=True))
                             
@@ -941,7 +998,12 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                     if r.returncode != 0:
                                         r.check_returncode()    
                                         
-                                    r = sp.run(['git', 'commit', '-m', 'automatic update', '-m', f"following {last_commit['web_url']}"], capture_output=True, text=True)
+                                    r = sp.run(
+                                        ['git', 'commit', '-m', 'automatic update', '-m', f"following {last_commit['web_url']}"], 
+                                        capture_output=True, 
+                                        text=True
+                                        )
+                                    
                                     if r.returncode == 1:
                                         changed = False
                                     elif r.returncode != 0:
@@ -949,21 +1011,76 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                     else:
                                         changed = True
                                         
-                                    if changed is True:
+                                    if changed:
                                         r = sp.run(['git', 'push', '--set-upstream', 'origin', upd_branch_name], 
                                                 capture_output=True, text=True)
                                         if r.returncode != 0:
-                                            r.check_returncode()    
-                                        
-                                        make_pr(tools_repo, 
-                                                upd_branch_name, 
-                                                target_tools_repo, 
-                                                target_branch, 
-                                                f"Update tool {tool_name} to {new_version}")
+                                            r.check_returncode()
+  
+                                        pr = make_pr(
+                                            tools_repo, 
+                                            upd_branch_name, 
+                                            target_tools_repo, 
+                                            target_branch, 
+                                            f"Update tool {tool_name} to {new_version}",
+                                            )
 
-                                except:
-                                    logger.error(r.stderr)
+                                        set_commit_state(
+                                            gitlab_api_url=gitlab_api_url,
+                                            proj_id=project['id'],
+                                            commit_sha=last_commit['id'],
+                                            name='Galaxy tool',
+                                            state='success',
+                                            description='Galaxy tool updated on GitHub',
+                                            target_url=pr['html_url']
+                                            )
+
+                                    else:
+                                        pr = make_pr(
+                                            tools_repo, 
+                                            upd_branch_name, 
+                                            target_tools_repo, 
+                                            target_branch, 
+                                            f"Update tool {tool_name} to {new_version}",
+                                            dry_run=True
+                                            )
+                                                                            
+                                        kwargs = {}
+                                        if pr is not None:
+                                            kwargs['target_url'] = pr['html_url']
+
+                                        set_commit_state(
+                                            gitlab_api_url=gitlab_api_url,
+                                            proj_id=project['id'],
+                                            commit_sha=last_commit['id'],
+                                            name='Galaxy tool',
+                                            state='skipped',
+                                            description='No updates in Galaxy tool',
+                                            **kwargs
+                                            )                                        
+                                    
+                                except Exception as e:
+                                    if isinstance(e, sp.SubprocessError):
+                                        logger.error(r.stderr)
+
+                                    kwargs = {}
+                                    try:
+                                        kwargs['target_url'] = pr['html_url']
+                                    except:
+                                        pass
+
+                                    set_commit_state(
+                                        gitlab_api_url=gitlab_api_url,
+                                        proj_id=project['id'],
+                                        commit_sha=last_commit['id'],
+                                        name='Galaxy tool',
+                                        state='failed',
+                                        description=repr(e),
+                                        **kwargs
+                                        )
+                                    
                                     raise
+
                                 finally:
                                     sp.run(['git', 'restore', '--staged', '.'])
                                     sp.run(['git', 'clean', '-fd'], check=True)
@@ -982,9 +1099,22 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                 oda_bot_runtime['deployed_tools'] = deployed_tools
                                 with open(state_storage, 'w') as fd:
                                     yaml.dump(oda_bot_runtime, fd)
-                except:
+                except Exception as e:
                     logger.error("unexpected exception: %s", traceback.format_exc())
                     logger.error("Cleanup all changes in the repo directory")
+                    try: 
+                        set_commit_state(
+                            gitlab_api_url=gitlab_api_url,
+                            proj_id=project['id'],
+                            commit_sha=last_commit['id'],
+                            name='Galaxy tool',
+                            state='failed',
+                            description=repr(e),
+                            )
+                    except NameError:
+                        # if last_commit is unbound for any reason (normally should be set)
+                        pass
+
                     sp.run(['git', 'clean', '-fd'])
                     logger.error("continue with the next repo")
 
