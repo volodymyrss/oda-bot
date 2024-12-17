@@ -495,6 +495,10 @@ def update_workflows(obj, dry_run, force, loop, pattern):
     gitlab_gid = obj['settings'].get('gitlab.gid', 5606)
     
     default_creative_status = obj['settings'].get('nb2workflow.default_creative_status', 'development')
+
+    trigger_topics_dev = obj['settings'].get('nb2workflow.trigger_topics.development', ['live-workflow'])
+    trigger_topics_public = obj['settings'].get('nb2workflow.trigger_topics.public', ['live-workflow-public'])
+
     
     if obj['settings'].get('nb2workflow.state_storage.type', 'yaml') == 'yaml':
         state_storage = obj['settings'].get('nb2workflow.state_storage.path', 'oda-bot-runtime-workflows.yaml')
@@ -517,12 +521,12 @@ def update_workflows(obj, dry_run, force, loop, pattern):
             deployed_workflows = oda_bot_runtime["deployed_workflows"]
 
             for project in requests.get(f'{gitlab_api_url}groups/{gitlab_gid}/projects?include_subgroups=yes&order_by=last_activity_at').json():            
-                if 'live-workflow-public' in project['topics']:
+                if set(trigger_topics_public) & set(project['topics']):
                     project['creative_status'] = "production"
                 else:
                     project['creative_status'] = default_creative_status
              
-                if re.match(pattern, project['name']) and ('live-workflow' in project['topics'] or 'live-workflow-public' in project['topics']):                
+                if re.match(pattern, project['name']) and (set(trigger_topics_dev+trigger_topics_public) & set(project['topics'])):                
                     logger.info("%20s  ago %s", project['name'], project['http_url_to_repo'])
                     logger.info("%20s", project['topics'])
                     logger.debug("%s", json.dumps(project))
@@ -732,6 +736,8 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
     git_email = obj['settings'].get('nb2galaxy.git_identity.email', 'noreply@odahub.io')
     git_credentials = obj['settings'].get('nb2galaxy.git_credentials', os.path.join(os.environ.get('HOME', '/'), '.git-credentials'))
     available_channels = obj['settings'].get('nb2galaxy.conda_channels', ['conda-forge'])
+    trigger_topics_public = obj['settings'].get('nb2galaxy.trigger_topics.public', ['galaxy-tool'])
+
     if isinstance(available_channels, BoxList):
         available_channels = available_channels.to_list()
     elif isinstance(available_channels, str):
@@ -840,7 +846,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
         try:
             for project in requests.get(f'{gitlab_api_url}groups/{gitlab_gid}/projects?include_subgroups=yes&order_by=last_activity_at').json():
                 try:    
-                    if re.match(pattern, project['name']) and 'galaxy-tool' in project['topics']:
+                    if re.match(pattern, project['name']) and (set(trigger_topics_public) & set(project['topics'])):
                         logger.info("%20s %s", project['name'], project['http_url_to_repo'])
                         logger.debug("%s", json.dumps(project))
 
