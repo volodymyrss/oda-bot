@@ -737,6 +737,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
     git_credentials = obj['settings'].get('nb2galaxy.git_credentials', os.path.join(os.environ.get('HOME', '/'), '.git-credentials'))
     available_channels = obj['settings'].get('nb2galaxy.conda_channels', ['conda-forge'])
     trigger_topics_public = obj['settings'].get('nb2galaxy.trigger_topics.public', ['galaxy-tool'])
+    github_pr_labels = obj['settings'].get('nb2galaxy.github_pr_labels', ['test-live'])
 
     if isinstance(available_channels, BoxList):
         available_channels = available_channels.to_list()
@@ -829,6 +830,27 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                 logger.info(f"New PR {res.json()['html_url']}")
                 return res.json()
 
+    def add_label_to_pr(repo, pr_num, labels):
+        repo_patt = re.compile(r'https://github\.com/(?P<user>[^/]+)/(?P<repo>[^\.]+)\.git')
+
+        m = repo_patt.match(repo)
+        t_user = m.group('user')
+        t_repo = m.group('repo')
+
+        api_url = f"https://api.github.com/repos/{t_user}/{t_repo}/issues/{pr_num}/labels"
+        # yes, issues, not pulls; the numbering is common so as the endpoint
+
+        res = requests.post(
+            api_url, 
+            json={"labels": labels},
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {token}",
+                "X-GitHub-Api-Version": "2022-11-28"
+                }
+            )
+        if res.status_code != 200:
+            logger.error('Error adding labels for PR %s', pr_num)
 
 
     if "deployed_tools" not in oda_bot_runtime:
@@ -1040,6 +1062,12 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                             description='Galaxy tool updated on GitHub',
                                             target_url=pr['html_url']
                                             )
+                                        
+                                        add_label_to_pr(
+                                            tools_repo,
+                                            pr['number'],
+                                            github_pr_labels
+                                        )
 
                                     else:
                                         pr = make_pr(
