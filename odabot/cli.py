@@ -294,7 +294,8 @@ def update_workflow(last_commit,
                     cleanup,
                     gitlab_api_url,
                     extra_emails=[],
-                    creative_work_status = "development"):
+                    creative_work_status="development",
+                    gitlab_state_name_prefix=""):
     deployed_workflows = {}
     deployment_info = None
 
@@ -324,7 +325,7 @@ def update_workflow(last_commit,
             set_commit_state(gitlab_api_url, 
                              project['id'], 
                              last_commit['id'], 
-                             "MMODA: build",
+                             gitlab_state_name_prefix+"MMODA: build",
                              "running",
                              description="ODA-bot is building a container")
             try:
@@ -339,7 +340,7 @@ def update_workflow(last_commit,
                 set_commit_state(gitlab_api_url, 
                                  project['id'], 
                                  last_commit['id'], 
-                                 "MMODA: build",
+                                 gitlab_state_name_prefix+"MMODA: build",
                                  "failed",
                                  description="ODA-bot unable to build the container. An e-mail with details has been sent.")
                 raise
@@ -352,7 +353,7 @@ def update_workflow(last_commit,
                 set_commit_state(gitlab_api_url, 
                                  project['id'], 
                                  last_commit['id'], 
-                                 "MMODA: build",
+                                 gitlab_state_name_prefix+"MMODA: build",
                                  "success",
                                  description=(f"ODA-bot have successfully built the container in {(datetime.now() - bstart).seconds} seconds. "
                                               f"Image pushed to registry as {container_info['image']}"),
@@ -362,7 +363,7 @@ def update_workflow(last_commit,
             set_commit_state(gitlab_api_url, 
                              project['id'], 
                              last_commit['id'], 
-                             "MMODA: deploy",
+                             gitlab_state_name_prefix+"MMODA: deploy",
                              "running",
                              description="ODA-bot is deploying the workflow")
             try:
@@ -375,7 +376,7 @@ def update_workflow(last_commit,
                 set_commit_state(gitlab_api_url, 
                                  project['id'], 
                                  last_commit['id'], 
-                                 "MMODA: deploy",
+                                 gitlab_state_name_prefix+"MMODA: deploy",
                                  "failed",
                                  description="ODA-bot unable to deploy the workflow. An e-mail with details has been sent.")
                 raise
@@ -383,7 +384,7 @@ def update_workflow(last_commit,
                 set_commit_state(gitlab_api_url, 
                                  project['id'], 
                                  last_commit['id'], 
-                                 "MMODA: deploy",
+                                 gitlab_state_name_prefix+"MMODA: deploy",
                                  "success",
                                  description=f"ODA-bot have successfully deployed {workflow_name} to {deployment_namespace} namespace")
         
@@ -449,7 +450,7 @@ def update_workflow(last_commit,
             set_commit_state(gitlab_api_url, 
                              project['id'], 
                              last_commit['id'], 
-                             "MMODA: register",
+                             gitlab_state_name_prefix+"MMODA: register",
                              "success",
                              description=f"ODA-bot have successfully registered workflow in ODA KG")
             
@@ -498,6 +499,8 @@ def update_workflows(obj, dry_run, force, loop, pattern):
 
     trigger_topics_dev = obj['settings'].get('nb2workflow.trigger_topics.development', ['live-workflow'])
     trigger_topics_public = obj['settings'].get('nb2workflow.trigger_topics.public', ['live-workflow-public'])
+
+    state_name_prefix = obj['settings'].get('nb2workflow.state_name_prefix', '')
 
     
     if obj['settings'].get('nb2workflow.state_storage.type', 'yaml') == 'yaml':
@@ -564,7 +567,8 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                                                       cleanup=False if obj['debug'] else True,
                                                                                       gitlab_api_url=gitlab_api_url,
                                                                                       extra_emails=admin_emails,
-                                                                                      creative_work_status=project['creative_status'])
+                                                                                      creative_work_status=project['creative_status'],
+                                                                                      gitlab_state_name_prefix=state_name_prefix)
 
                             logger.info('Workflow update status %s', workflow_update_status)
                             logger.info('Deployment info %s', deployment_info)
@@ -580,7 +584,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                     set_commit_state(gitlab_api_url, 
                                                      project['id'], 
                                                      last_commit['id'], 
-                                                     "MMODA: frontend_tab",
+                                                     state_name_prefix+"MMODA: frontend_tab",
                                                      "running",
                                                      description="Generating frontend tab")
                                     try:
@@ -641,7 +645,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                         set_commit_state(gitlab_api_url, 
                                                          project['id'], 
                                                          last_commit['id'], 
-                                                         "MMODA: frontend_tab",
+                                                         state_name_prefix+"MMODA: frontend_tab",
                                                          "failed",
                                                          description="Failed generating frontend tab")
                                         
@@ -666,7 +670,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                         set_commit_state(gitlab_api_url, 
                                                          project['id'], 
                                                          last_commit['id'], 
-                                                         "MMODA: frontend_tab",
+                                                         state_name_prefix+"MMODA: frontend_tab",
                                                          "success",
                                                          description="Frontend tab generated",
                                                          target_url=frontend_url)
