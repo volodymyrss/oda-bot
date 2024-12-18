@@ -294,7 +294,8 @@ def update_workflow(last_commit,
                     cleanup,
                     gitlab_api_url,
                     extra_emails=[],
-                    creative_work_status = "development"):
+                    creative_work_status="development",
+                    gitlab_state_name_prefix=""):
     deployed_workflows = {}
     deployment_info = None
 
@@ -324,7 +325,7 @@ def update_workflow(last_commit,
             set_commit_state(gitlab_api_url, 
                              project['id'], 
                              last_commit['id'], 
-                             "MMODA: build",
+                             gitlab_state_name_prefix+"MMODA: build",
                              "running",
                              description="ODA-bot is building a container")
             try:
@@ -339,7 +340,7 @@ def update_workflow(last_commit,
                 set_commit_state(gitlab_api_url, 
                                  project['id'], 
                                  last_commit['id'], 
-                                 "MMODA: build",
+                                 gitlab_state_name_prefix+"MMODA: build",
                                  "failed",
                                  description="ODA-bot unable to build the container. An e-mail with details has been sent.")
                 raise
@@ -352,7 +353,7 @@ def update_workflow(last_commit,
                 set_commit_state(gitlab_api_url, 
                                  project['id'], 
                                  last_commit['id'], 
-                                 "MMODA: build",
+                                 gitlab_state_name_prefix+"MMODA: build",
                                  "success",
                                  description=(f"ODA-bot have successfully built the container in {(datetime.now() - bstart).seconds} seconds. "
                                               f"Image pushed to registry as {container_info['image']}"),
@@ -362,7 +363,7 @@ def update_workflow(last_commit,
             set_commit_state(gitlab_api_url, 
                              project['id'], 
                              last_commit['id'], 
-                             "MMODA: deploy",
+                             gitlab_state_name_prefix+"MMODA: deploy",
                              "running",
                              description="ODA-bot is deploying the workflow")
             try:
@@ -375,7 +376,7 @@ def update_workflow(last_commit,
                 set_commit_state(gitlab_api_url, 
                                  project['id'], 
                                  last_commit['id'], 
-                                 "MMODA: deploy",
+                                 gitlab_state_name_prefix+"MMODA: deploy",
                                  "failed",
                                  description="ODA-bot unable to deploy the workflow. An e-mail with details has been sent.")
                 raise
@@ -383,7 +384,7 @@ def update_workflow(last_commit,
                 set_commit_state(gitlab_api_url, 
                                  project['id'], 
                                  last_commit['id'], 
-                                 "MMODA: deploy",
+                                 gitlab_state_name_prefix+"MMODA: deploy",
                                  "success",
                                  description=f"ODA-bot have successfully deployed {workflow_name} to {deployment_namespace} namespace")
         
@@ -449,7 +450,7 @@ def update_workflow(last_commit,
             set_commit_state(gitlab_api_url, 
                              project['id'], 
                              last_commit['id'], 
-                             "MMODA: register",
+                             gitlab_state_name_prefix+"MMODA: register",
                              "success",
                              description=f"ODA-bot have successfully registered workflow in ODA KG")
             
@@ -495,6 +496,12 @@ def update_workflows(obj, dry_run, force, loop, pattern):
     gitlab_gid = obj['settings'].get('gitlab.gid', 5606)
     
     default_creative_status = obj['settings'].get('nb2workflow.default_creative_status', 'development')
+
+    trigger_topics_dev = obj['settings'].get('nb2workflow.trigger_topics.development', ['live-workflow'])
+    trigger_topics_public = obj['settings'].get('nb2workflow.trigger_topics.public', ['live-workflow-public'])
+
+    state_name_prefix = obj['settings'].get('nb2workflow.state_name_prefix', '')
+
     
     if obj['settings'].get('nb2workflow.state_storage.type', 'yaml') == 'yaml':
         state_storage = obj['settings'].get('nb2workflow.state_storage.path', 'oda-bot-runtime-workflows.yaml')
@@ -517,12 +524,12 @@ def update_workflows(obj, dry_run, force, loop, pattern):
             deployed_workflows = oda_bot_runtime["deployed_workflows"]
 
             for project in requests.get(f'{gitlab_api_url}groups/{gitlab_gid}/projects?include_subgroups=yes&order_by=last_activity_at').json():            
-                if 'live-workflow-public' in project['topics']:
+                if set(trigger_topics_public) & set(project['topics']):
                     project['creative_status'] = "production"
                 else:
                     project['creative_status'] = default_creative_status
              
-                if re.match(pattern, project['name']) and ('live-workflow' in project['topics'] or 'live-workflow-public' in project['topics']):                
+                if re.match(pattern, project['name']) and (set(trigger_topics_dev+trigger_topics_public) & set(project['topics'])):                
                     logger.info("%20s  ago %s", project['name'], project['http_url_to_repo'])
                     logger.info("%20s", project['topics'])
                     logger.debug("%s", json.dumps(project))
@@ -560,7 +567,8 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                                                       cleanup=False if obj['debug'] else True,
                                                                                       gitlab_api_url=gitlab_api_url,
                                                                                       extra_emails=admin_emails,
-                                                                                      creative_work_status=project['creative_status'])
+                                                                                      creative_work_status=project['creative_status'],
+                                                                                      gitlab_state_name_prefix=state_name_prefix)
 
                             logger.info('Workflow update status %s', workflow_update_status)
                             logger.info('Deployment info %s', deployment_info)
@@ -576,7 +584,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                     set_commit_state(gitlab_api_url, 
                                                      project['id'], 
                                                      last_commit['id'], 
-                                                     "MMODA: frontend_tab",
+                                                     state_name_prefix+"MMODA: frontend_tab",
                                                      "running",
                                                      description="Generating frontend tab")
                                     try:
@@ -637,7 +645,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                         set_commit_state(gitlab_api_url, 
                                                          project['id'], 
                                                          last_commit['id'], 
-                                                         "MMODA: frontend_tab",
+                                                         state_name_prefix+"MMODA: frontend_tab",
                                                          "failed",
                                                          description="Failed generating frontend tab")
                                         
@@ -662,7 +670,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                         set_commit_state(gitlab_api_url, 
                                                          project['id'], 
                                                          last_commit['id'], 
-                                                         "MMODA: frontend_tab",
+                                                         state_name_prefix+"MMODA: frontend_tab",
                                                          "success",
                                                          description="Frontend tab generated",
                                                          target_url=frontend_url)
@@ -732,6 +740,9 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
     git_email = obj['settings'].get('nb2galaxy.git_identity.email', 'noreply@odahub.io')
     git_credentials = obj['settings'].get('nb2galaxy.git_credentials', os.path.join(os.environ.get('HOME', '/'), '.git-credentials'))
     available_channels = obj['settings'].get('nb2galaxy.conda_channels', ['conda-forge'])
+    trigger_topics_public = obj['settings'].get('nb2galaxy.trigger_topics.public', ['galaxy-tool'])
+    github_pr_labels = obj['settings'].get('nb2galaxy.github_pr_labels', ['test-live'])
+
     if isinstance(available_channels, BoxList):
         available_channels = available_channels.to_list()
     elif isinstance(available_channels, str):
@@ -823,6 +834,27 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                 logger.info(f"New PR {res.json()['html_url']}")
                 return res.json()
 
+    def add_label_to_pr(repo, pr_num, labels):
+        repo_patt = re.compile(r'https://github\.com/(?P<user>[^/]+)/(?P<repo>[^\.]+)\.git')
+
+        m = repo_patt.match(repo)
+        t_user = m.group('user')
+        t_repo = m.group('repo')
+
+        api_url = f"https://api.github.com/repos/{t_user}/{t_repo}/issues/{pr_num}/labels"
+        # yes, issues, not pulls; the numbering is common so as the endpoint
+
+        res = requests.post(
+            api_url, 
+            json={"labels": labels},
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {token}",
+                "X-GitHub-Api-Version": "2022-11-28"
+                }
+            )
+        if res.status_code != 200:
+            logger.error('Error adding labels for PR %s', pr_num)
 
 
     if "deployed_tools" not in oda_bot_runtime:
@@ -840,7 +872,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
         try:
             for project in requests.get(f'{gitlab_api_url}groups/{gitlab_gid}/projects?include_subgroups=yes&order_by=last_activity_at').json():
                 try:    
-                    if re.match(pattern, project['name']) and 'galaxy-tool' in project['topics']:
+                    if re.match(pattern, project['name']) and (set(trigger_topics_public) & set(project['topics'])):
                         logger.info("%20s %s", project['name'], project['http_url_to_repo'])
                         logger.debug("%s", json.dumps(project))
 
@@ -1034,6 +1066,12 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                             description='Galaxy tool updated on GitHub',
                                             target_url=pr['html_url']
                                             )
+                                        
+                                        add_label_to_pr(
+                                            tools_repo,
+                                            pr['number'],
+                                            github_pr_labels
+                                        )
 
                                     else:
                                         pr = make_pr(
