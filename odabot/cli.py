@@ -396,8 +396,9 @@ def update_workflow(last_commit,
 
                     vol_kwargs = {"with_volume": False}
                     if runtime_volume_config is not None:
-                        vol_kwargs = dict(with_volume=True).update(
-                            runtime_volume_config
+                        vol_kwargs = dict(
+                            with_volume=True,
+                            **runtime_volume_config
                         )
 
                     deployment_info = repo.deploy_k8s(
