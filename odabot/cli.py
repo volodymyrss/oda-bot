@@ -25,14 +25,14 @@ logger = logging.getLogger()
 try:
     import markdown
     import rdflib
-    from nb2workflow.deploy import build_container, deploy_k8s, ContainerBuildException
+    from nb2workflow.deploy import build_container, deploy_k8s, ContainerBuildException, NBRepo
     from nb2workflow import version as nb2wver
     #from nb2workflow.validate import validate, patch_add_tests, patch_normalized_uris
     from mmoda_tab_generator.tab_generator import MMODATabGenerator
     from .markdown_helper import convert_help
 except ImportError:
     logger.warning('Deployment dependencies not loaded')
-    
+
 try:
     from nb2workflow.galaxy import to_galaxy    
     import frontmatter
@@ -165,8 +165,6 @@ def cli(obj, debug, settings):
 
     obj['debug'] = debug
 
-        
-
 
 @cli.command()
 @click.option('--branch', default="master")
@@ -289,24 +287,23 @@ def update_workflow(last_commit,
                     deployment_namespace, 
                     sparql_obj, 
                     container_registry,
-                    dispatcher_deployment,
                     build_engine,
                     cleanup,
                     gitlab_api_url,
                     extra_emails=[],
                     creative_work_status="development",
-                    gitlab_state_name_prefix=""):
+                    gitlab_state_name_prefix="",
+                    runtime_volume_config: dict|None = None):
     deployed_workflows = {}
     deployment_info = None
-
 
     logger.info("will deploy this workflow")
 
     # validation_results = [v for v in [
-    #     validate(project['ssh_url_to_repo'], patch_normalized_uris, gitlab_project=project),        
+    #     validate(project['ssh_url_to_repo'], patch_normalized_uris, gitlab_project=project),
     #     validate(project['ssh_url_to_repo'], patch_add_tests, gitlab_project=project)
     # ] if v is not None]
-    
+
     validation_results = []
 
     logger.info("validation_results: %s", validation_results)
@@ -320,81 +317,121 @@ def update_workflow(last_commit,
                    ))
     else:
         try:
-            # build
-            bstart = datetime.now()
-            set_commit_state(gitlab_api_url, 
-                             project['id'], 
-                             last_commit['id'], 
-                             gitlab_state_name_prefix+"MMODA: build",
-                             "running",
-                             description="ODA-bot is building a container")
-            try:
-                container_info = build_container(project['http_url_to_repo'], 
-                                             registry=container_registry,
-                                             build_timestamp=True,
-                                             engine=build_engine,
-                                             cleanup=cleanup,
-                                             namespace = deployment_namespace,
-                                             nb2wversion=os.environ.get('ODA_WF_NB2W_VERSION', nb2wver()))
-            except:
-                set_commit_state(gitlab_api_url, 
-                                 project['id'], 
-                                 last_commit['id'], 
-                                 gitlab_state_name_prefix+"MMODA: build",
-                                 "failed",
-                                 description="ODA-bot unable to build the container. An e-mail with details has been sent.")
-                raise
-            else:
-                if container_info['image'].count('/') == 1:
-                    container_info['image'] 
-                    hub_url = f"https://hub.docker.com/r/{container_info['image'].split(':')[0]}"
-                else:
-                    hub_url = None # no universal way to construct clickable url 
-                set_commit_state(gitlab_api_url, 
-                                 project['id'], 
-                                 last_commit['id'], 
-                                 gitlab_state_name_prefix+"MMODA: build",
-                                 "success",
-                                 description=(f"ODA-bot have successfully built the container in {(datetime.now() - bstart).seconds} seconds. "
-                                              f"Image pushed to registry as {container_info['image']}"),
-                                 target_url=hub_url)
+            with NBRepo(
+                repo_path=project['http_url_to_repo'],
+                registry=container_registry
+            ) as repo:
+                # build
+                bstart = datetime.now()
+                set_commit_state(
+                    gitlab_api_url, 
+                    project['id'], 
+                    last_commit['id'], 
+                    gitlab_state_name_prefix+"MMODA: build",
+                    "running",
+                    description="ODA-bot is building a container"
+                    )
+                try:
+                    if build_engine == 'kaniko':
+                        container_info = repo.build_with_kaniko(
+                            build_timestamp=True,
+                            nb2wversion=os.environ.get('ODA_WF_NB2W_VERSION', nb2wver()),
+                            namespace=deployment_namespace,
+                            cleanup=cleanup
+                        )
+                    elif build_engine == 'docker':
+                        container_info = repo.build_with_docker(
+                            no_push=False,
+                            build_timestamp=True,
+                            nb2wversion=os.environ.get('ODA_WF_NB2W_VERSION', nb2wver()),
+                        )
+                    else:
+                        raise NotImplementedError(f'Unknown build engine: {build_engine}')
 
-            #deploy
-            set_commit_state(gitlab_api_url, 
-                             project['id'], 
-                             last_commit['id'], 
-                             gitlab_state_name_prefix+"MMODA: deploy",
-                             "running",
-                             description="ODA-bot is deploying the workflow")
-            try:
-                workflow_name = project['name'].lower().replace(' ', '-').replace('_', '-') + '-workflow'
-                deployment_info = deploy_k8s(container_info,
-                                            workflow_name, 
-                                            namespace=deployment_namespace, 
-                                            check_live_through=dispatcher_deployment)    
-            except:
-                set_commit_state(gitlab_api_url, 
-                                 project['id'], 
-                                 last_commit['id'], 
-                                 gitlab_state_name_prefix+"MMODA: deploy",
-                                 "failed",
-                                 description="ODA-bot unable to deploy the workflow. An e-mail with details has been sent.")
-                raise
-            else:
-                set_commit_state(gitlab_api_url, 
-                                 project['id'], 
-                                 last_commit['id'], 
-                                 gitlab_state_name_prefix+"MMODA: deploy",
-                                 "success",
-                                 description=f"ODA-bot have successfully deployed {workflow_name} to {deployment_namespace} namespace")
-        
+                except:
+                    set_commit_state(
+                        gitlab_api_url, 
+                        project['id'], 
+                        last_commit['id'], 
+                        gitlab_state_name_prefix+"MMODA: build",
+                        "failed",
+                        description="ODA-bot unable to build the container. An e-mail with details has been sent."
+                        )
+                    raise
+                else:
+                    if container_info['image'].count('/') == 1:
+                        container_info['image'] 
+                        hub_url = f"https://hub.docker.com/r/{container_info['image'].split(':')[0]}"
+                    else:
+                        hub_url = None # no universal way to construct clickable url 
+                    set_commit_state(
+                        gitlab_api_url,
+                        project["id"],
+                        last_commit["id"],
+                        gitlab_state_name_prefix + "MMODA: build",
+                        "success",
+                        description=(
+                            f"ODA-bot have successfully built the container in {(datetime.now() - bstart).seconds} seconds. "
+                            f"Image pushed to registry as {container_info['image']}"
+                        ),
+                        target_url=hub_url,
+                    )
+
+                # deploy
+                set_commit_state(
+                    gitlab_api_url,
+                    project["id"],
+                    last_commit["id"],
+                    gitlab_state_name_prefix + "MMODA: deploy",
+                    "running",
+                    description="ODA-bot is deploying the workflow",
+                )
+                try:
+                    workflow_name = (
+                        project["name"].lower().replace(" ", "-").replace("_", "-")
+                        + "-workflow"
+                    )
+
+                    vol_kwargs = {"with_volume": False}
+                    if runtime_volume_config is not None:
+                        vol_kwargs = dict(with_volume=True).update(
+                            runtime_volume_config
+                        )
+
+                    deployment_info = repo.deploy_k8s(
+                        deployment_base_name=workflow_name,
+                        namespace=deployment_namespace,
+                        container_override=container_info,
+                        **vol_kwargs,
+                    )
+
+                except:
+                    set_commit_state(
+                        gitlab_api_url,
+                        project["id"],
+                        last_commit["id"],
+                        gitlab_state_name_prefix + "MMODA: deploy",
+                        "failed",
+                        description="ODA-bot unable to deploy the workflow. An e-mail with details has been sent.",
+                    )
+                    raise
+                else:
+                    set_commit_state(
+                        gitlab_api_url,
+                        project["id"],
+                        last_commit["id"],
+                        gitlab_state_name_prefix + "MMODA: deploy",
+                        "success",
+                        description=f"ODA-bot have successfully deployed {workflow_name} to {deployment_namespace} namespace",
+                    )
+
         except ContainerBuildException as e:
             deployed_workflows[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at, 
                                                                'last_deployment_status': 'failed',
                                                                'stage_failed': 'build'}
 
             logger.warning('exception deploying %s! %s', project['name'], repr(e))
-            
+
             with tempfile.TemporaryDirectory() as tmpdir:
                 attachments = []
                 buildlog = getattr(e, 'buildlog', None)
@@ -414,14 +451,14 @@ def update_workflow(last_commit,
                            "Please check attached files for more info.\n"
                            "\n\nSincerely, ODA Bot"
                            ), attachments, extra_emails=extra_emails)
-        
+
         except Exception as e:
             deployed_workflows[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at, 
                                                                'last_deployment_status': 'failed',
                                                                'stage_failed': 'deploy'}
-            
+
             logger.warning('exception deploying %s! %s', project['name'], repr(e))
-            
+
             send_email(last_commit['committer_email'], 
                        f"[ODA-Workflow-Bot] unfortunately did NOT manage to deploy {project['name']}!", 
                        ("Dear MMODA Workflow Developer\n\n"
@@ -433,8 +470,7 @@ def update_workflow(last_commit,
                        f"[ODA-Workflow-Bot] internal error while deploying {project['name']}",
                        traceback.format_exc())
             # TODO: sentry
-            
-            
+
         else:
             kg_record = f'''
                 {rdflib.URIRef(project['http_url_to_repo']).n3()} a oda:WorkflowService;
@@ -445,7 +481,7 @@ def update_workflow(last_commit,
                                     oda:deployment_name "{deployment_info['deployment_name']}";
                                     <https://schema.org/creativeWorkStatus> "{creative_work_status}".  
                 '''
-            
+
             sparql_obj.insert(kg_record)
             set_commit_state(gitlab_api_url, 
                              project['id'], 
@@ -453,7 +489,7 @@ def update_workflow(last_commit,
                              gitlab_state_name_prefix+"MMODA: register",
                              "success",
                              description=f"ODA-bot have successfully registered workflow in ODA KG")
-            
+
             deployed_workflows[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at, 
                                                                'last_deployment_status': 'success'}
 
@@ -476,25 +512,25 @@ def update_workflows(obj, dry_run, force, loop, pattern):
     else:
         import odakb
         odakb_sparql = odakb.sparql    
-    
+
     k8s_namespace = obj['settings'].get('nb2workflow.k8s_namespace', 'oda-staging')
     dispatcher_url = obj['settings'].get('nb2workflow.dispatcher.url', 
                                          "https://dispatcher-staging.obsuks1.unige.ch")
-    dispatcher_deployment = obj['settings'].get('nb2workflow.dispatcher.deployment', 
-                                                "oda-dispatcher")
+    # dispatcher_deployment = obj['settings'].get('nb2workflow.dispatcher.deployment',
+    #                                             "oda-dispatcher")
     container_registry = obj['settings'].get('nb2workflow.registry', 'odahub')
-    
+
     frontend_instruments_dir = obj['settings'].get('nb2workflow.frontend.instruments_dir', None)
     frontend_deployment = obj['settings'].get('nb2workflow.frontend.deployment', None)
     frontend_url = obj['settings'].get('nb2workflow.frontend.frontend_url', None)
-    
+
     build_engine = obj['settings'].get('nb2workflow.build_engine', 'docker')
-    
+
     admin_emails = obj['settings'].get('admin_emails', [])
-    
+
     gitlab_api_url = obj['settings'].get('gitlab.api_url', "https://gitlab.renkulab.io/api/v4/")
     gitlab_gid = obj['settings'].get('gitlab.gid', 5606)
-    
+
     default_creative_status = obj['settings'].get('nb2workflow.default_creative_status', 'development')
 
     trigger_topics_dev = obj['settings'].get('nb2workflow.trigger_topics.development', ['live-workflow'])
@@ -502,7 +538,8 @@ def update_workflows(obj, dry_run, force, loop, pattern):
 
     state_name_prefix = obj['settings'].get('nb2workflow.state_name_prefix', '')
 
-    
+    runtime_volume_config = obj['settings'].get('nb2workflow.runtime_volume_config', None)
+
     if obj['settings'].get('nb2workflow.state_storage.type', 'yaml') == 'yaml':
         state_storage = obj['settings'].get('nb2workflow.state_storage.path', 'oda-bot-runtime-workflows.yaml')
     else:
@@ -512,9 +549,9 @@ def update_workflows(obj, dry_run, force, loop, pattern):
         try:
             try:
                 oda_bot_runtime = yaml.safe_load(open(state_storage)) 
-                # TODO: Probably better to get this info from the local KG which stores info about workflows for the dispatcher? 
-                #       Or from git in the future if we go more gitops-way. Or even from etcd, as the bot acts almost like operator 
-                                
+                # TODO: Probably better to get this info from the local KG which stores info about workflows for the dispatcher?
+                #       Or from git in the future if we go more gitops-way. Or even from etcd, as the bot acts almost like operator
+
             except FileNotFoundError:
                 oda_bot_runtime = {}
 
@@ -528,7 +565,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                     project['creative_status'] = "production"
                 else:
                     project['creative_status'] = default_creative_status
-             
+
                 if re.match(pattern, project['name']) and (set(trigger_topics_dev+trigger_topics_public) & set(project['topics'])):                
                     logger.info("%20s  ago %s", project['name'], project['http_url_to_repo'])
                     logger.info("%20s", project['topics'])
@@ -538,10 +575,10 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                     last_commit_created_at = last_commit['created_at']
 
                     logger.info('last_commit %s from %s', last_commit, last_commit_created_at)
-                    
+
                     saved_last_commit_created_at = deployed_workflows.get(project['http_url_to_repo'], {}).get('last_commit_created_at', 0)
                     saved_last_deployment_status = deployed_workflows.get(project['http_url_to_repo'], {}).get('last_deployment_status', '')
-                    
+
                     logger.info('last_commit_created_at %s saved_last_commit_created_at %s', last_commit_created_at, saved_last_commit_created_at )
 
                     # !!
@@ -556,30 +593,32 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                             logger.info("would deploy this workflow")
                         else:
                             logger.info("will deploy this workflow, creative_status=%s, topics=%s", project['creative_status'], project['topics'])
-                            workflow_update_status, deployment_info = update_workflow(last_commit, 
-                                                                                      last_commit_created_at, 
-                                                                                      project, 
-                                                                                      k8s_namespace, 
-                                                                                      odakb_sparql, 
-                                                                                      container_registry,
-                                                                                      dispatcher_deployment,
-                                                                                      build_engine,
-                                                                                      cleanup=False if obj['debug'] else True,
-                                                                                      gitlab_api_url=gitlab_api_url,
-                                                                                      extra_emails=admin_emails,
-                                                                                      creative_work_status=project['creative_status'],
-                                                                                      gitlab_state_name_prefix=state_name_prefix)
+                            workflow_update_status, deployment_info = update_workflow(
+                                last_commit,
+                                last_commit_created_at,
+                                project,
+                                k8s_namespace,
+                                odakb_sparql,
+                                container_registry,
+                                build_engine,
+                                cleanup=False if obj["debug"] else True,
+                                gitlab_api_url=gitlab_api_url,
+                                extra_emails=admin_emails,
+                                creative_work_status=project["creative_status"],
+                                gitlab_state_name_prefix=state_name_prefix,
+                                runtime_volume_config=runtime_volume_config,
+                            )
 
                             logger.info('Workflow update status %s', workflow_update_status)
                             logger.info('Deployment info %s', deployment_info)
-                            
+
                             if workflow_update_status[project['http_url_to_repo']]['last_deployment_status'] == 'success':
-                                                               
+
                                 # TODO: check live
                                 # oda-api -u staging get -i cta-example
-                    
+
                                 # TODO: make configurable; consider it to be on k8s volume
-                                
+
                                 if frontend_instruments_dir:
                                     set_commit_state(gitlab_api_url, 
                                                      project['id'], 
@@ -596,13 +635,13 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                             logger.debug('Acknowledgements markdown: %s', acknowl)
                                             acknowl = markdown.markdown(acknowl)
                                             logger.debug('Acknowledgements html: %s', acknowl)
-                                        
+
                                         messenger = ''
                                         for topic in project['topics']:
                                             if topic.startswith('MM '):
                                                 messenger = topic[3:]
                                                 break                                     
-                                        
+
                                         help_html = None
                                         res = requests.get(f'{gitlab_api_url}projects/{project["id"]}/repository/files/mmoda_help_page.md/raw')
                                         if res.status_code == 200:
@@ -612,7 +651,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                             img_base_url = f'{project["web_url"]}/-/raw/{project["default_branch"]}/'
                                             help_html = convert_help(help_md, img_base_url)
                                             logger.debug('Help html: %s', help_html)
-                                        
+
                                         instr_name = project['name'].lower().replace(' ', '_').replace('-', '_')
 
                                         instrument_version_link = last_commit.get('web-url', None)
@@ -620,26 +659,41 @@ def update_workflows(obj, dry_run, force, loop, pattern):
 
                                         logger.info('Generating frontend tab')
                                         generator = MMODATabGenerator(dispatcher_url)
-                                        generator.generate(instrument_name = instr_name, 
-                                                        instruments_dir_path = frontend_instruments_dir,
-                                                        frontend_name = instr_name, 
-                                                        title = project['name'], 
-                                                        messenger = messenger,
-                                                        roles = '' if project.get('creative_status') == "production" else 'oda workflow developer',
-                                                        form_dispatcher_url = 'dispatch-data/run_analysis',
-                                                        weight = 200, # TODO: how to guess the best weight?
-                                                        citation = acknowl,
-                                                        instrument_version = instrument_version,
-                                                        instrument_version_link = instrument_version_link,
-                                                        help_page = help_html) 
-                                        
-                                        sp.check_output(["kubectl", "exec", #"-it", 
-                                                                f"deployment/{frontend_deployment}", 
-                                                                "-n", k8s_namespace, 
-                                                                "--", "bash", "-c", 
-                                                                f"cd /var/www/mmoda; ~/.composer/vendor/bin/drush dre -y mmoda_{instr_name}"])
+                                        generator.generate(
+                                            instrument_name=instr_name,
+                                            instruments_dir_path=frontend_instruments_dir,
+                                            frontend_name=instr_name,
+                                            title=project["name"],
+                                            messenger=messenger,
+                                            roles=(
+                                                ""
+                                                if project.get("creative_status")
+                                                == "production"
+                                                else "oda workflow developer"
+                                            ),
+                                            form_dispatcher_url="dispatch-data/run_analysis",
+                                            weight=200,  # TODO: how to guess the best weight?
+                                            citation=acknowl,
+                                            instrument_version=instrument_version,
+                                            instrument_version_link=instrument_version_link,
+                                            help_page=help_html,
+                                        )
 
-                                        workflow_update_status[project['http_url_to_repo']]['last_deployment_status'] == 'success'
+                                        sp.check_output(
+                                            [
+                                                "kubectl",
+                                                "exec",  # "-it",
+                                                f"deployment/{frontend_deployment}",
+                                                "-n",
+                                                k8s_namespace,
+                                                "--",
+                                                "bash",
+                                                "-c",
+                                                f"cd /var/www/mmoda; ~/.composer/vendor/bin/drush dre -y mmoda_{instr_name}",
+                                            ]
+                                        )
+
+                                        workflow_update_status[project['http_url_to_repo']]['last_deployment_status'] = 'success'
 
                                     except Exception as e:
                                         set_commit_state(gitlab_api_url, 
@@ -648,10 +702,10 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                          state_name_prefix+"MMODA: frontend_tab",
                                                          "failed",
                                                          description="Failed generating frontend tab")
-                                        
+
                                         workflow_update_status[project['http_url_to_repo']]['last_deployment_status'] = 'failed'
                                         workflow_update_status[project['http_url_to_repo']]['stage_failed'] = 'tab'
-                                        
+
                                         send_email(last_commit['committer_email'], 
                                                     f"[ODA-Workflow-Bot] failed to create the frontend tab for {project['name']}", 
                                                     ("Dear MMODA Workflow Developer\n\n"
@@ -674,7 +728,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                          "success",
                                                          description="Frontend tab generated",
                                                          target_url=frontend_url)
-                                        
+
                                         send_email(last_commit['committer_email'], 
                                                 f"[ODA-Workflow-Bot] deployed {project['name']}", 
                                                 ("Dear MMODA Workflow Developer\n\n"
@@ -690,11 +744,10 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                             oda_bot_runtime['deployed_workflows'] = deployed_workflows
                             with open(state_storage, 'w') as fd:
                                 yaml.dump(oda_bot_runtime, fd)
-                            
+
         except Exception as e:
             logger.error("unexpected exception: %s", traceback.format_exc())
-            
-        
+
         if loop > 0:
             logger.info("sleeping %s", loop)
             time.sleep(loop)
@@ -1166,11 +1219,9 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
             time.sleep(loop)
         else:
             break                        
-                        
-                    
-                              
 
-#TODO:  test service status and dispatcher status
+
+# TODO:  test service status and dispatcher status
 # oda-api -u https://dispatcher-staging.obsuks1.unige.ch get -i cta-example
 
 def main():
