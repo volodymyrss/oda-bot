@@ -25,7 +25,7 @@ logger = logging.getLogger()
 try:
     import markdown
     import rdflib
-    from nb2workflow.deploy import build_container, deploy_k8s, ContainerBuildException, NBRepo
+    from nb2workflow.deploy import ContainerBuildException, NBRepo
     from nb2workflow import version as nb2wver
     #from nb2workflow.validate import validate, patch_add_tests, patch_normalized_uris
     from mmoda_tab_generator.tab_generator import MMODATabGenerator
