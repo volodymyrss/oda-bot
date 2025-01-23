@@ -5,6 +5,7 @@ install_req = [
     'click',
     'requests',
     'dynaconf',
+    'sentry-sdk'
 ]
 
 extras_req = {
@@ -23,7 +24,7 @@ extras_req = {
     ],
     'galaxy': [
         'nb2workflow[galaxy]',
-        'python-frontmatter'
+        'python-frontmatter',
     ]
     
 }

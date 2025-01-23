@@ -22,7 +22,12 @@ import click
 from dynaconf import Dynaconf
 from dynaconf.vendor.box import BoxList
 
+import sentry_sdk
+
 logger = logging.getLogger()
+
+# will init if SENTRY_DSN is set
+sentry = sentry_sdk.init()
 
 try:
     import markdown
@@ -89,7 +94,7 @@ def send_email(_to, subject, text, attachments=None, extra_emails=[]):
             )    
             logger.info('sending email: %s %s', r, r.text)
     except Exception as e:
-        logger.error('Exception while sending email: %s', e)    
+        logger.exception('Exception while sending email: %s', e)
 
 
 def get_commit_state(gitlab_api_url, proj_id, commit_sha, name):
@@ -433,7 +438,10 @@ def update_workflow(last_commit,
                                                                'last_deployment_status': 'failed',
                                                                'stage_failed': 'build'}
 
-            logger.warning('exception deploying %s! %s', project['name'], repr(e))
+            logger.error('Build error in %s! %s', project['name'], repr(e), 
+                         extra={'Dockerfile': getattr(e, 'dockerfile', None),
+                                'buildlog': getattr(e, 'buildlog', None)})
+
 
             with tempfile.TemporaryDirectory() as tmpdir:
                 attachments = []
@@ -460,7 +468,7 @@ def update_workflow(last_commit,
                                                                'last_deployment_status': 'failed',
                                                                'stage_failed': 'deploy'}
 
-            logger.warning('exception deploying %s! %s', project['name'], repr(e))
+            logger.exception('exception deploying %s! %s', project['name'], repr(e))
 
             send_email(last_commit['committer_email'], 
                        f"[ODA-Workflow-Bot] unfortunately did NOT manage to deploy {project['name']}!", 
@@ -472,7 +480,6 @@ def update_workflow(last_commit,
             send_email(extra_emails,
                        f"[ODA-Workflow-Bot] internal error while deploying {project['name']}",
                        traceback.format_exc())
-            # TODO: sentry
 
         else:
             kg_record = f'''
@@ -749,7 +756,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                 yaml.dump(oda_bot_runtime, fd)
 
         except Exception as e:
-            logger.error("unexpected exception: %s", traceback.format_exc())
+            logger.exception("unexpected exception: %s", traceback.format_exc())
 
         if loop > 0:
             logger.info("sleeping %s", loop)
@@ -1155,7 +1162,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                     
                                 except Exception as e:
                                     if isinstance(e, sp.SubprocessError):
-                                        logger.error(r.stderr)
+                                        logger.exception('%s. stderr: %s', e, r.stderr)
 
                                     kwargs = {}
                                     try:
@@ -1194,8 +1201,8 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                 with open(state_storage, 'w') as fd:
                                     yaml.dump(oda_bot_runtime, fd)
                 except Exception as e:
-                    logger.error("unexpected exception: %s", traceback.format_exc())
-                    logger.error("Cleanup all changes in the repo directory")
+                    logger.exception("unexpected exception: %s", traceback.format_exc())
+                    logger.info("Cleanup all changes in the repo directory")
                     try: 
                         set_commit_state(
                             gitlab_api_url=gitlab_api_url,
@@ -1210,12 +1217,12 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                         pass
 
                     sp.run(['git', 'clean', '-fd'])
-                    logger.error("continue with the next repo")
+                    logger.info("continue with the next repo")
 
                     continue
                     
         except Exception:
-            logger.error("unexpected exception: %s", traceback.format_exc())
+            logger.exception("unexpected exception: %s", traceback.format_exc())
             
         if loop > 0:
             logger.info("sleeping %s", loop)
