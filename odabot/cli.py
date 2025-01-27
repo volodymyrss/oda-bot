@@ -24,7 +24,7 @@ from dynaconf.vendor.box import BoxList
 
 import sentry_sdk
 
-from odabot.email_helper import send_email
+from odabot.notification_helpers import get_commit_state, send_email, set_commit_state
 
 logger = logging.getLogger()
 
@@ -47,52 +47,6 @@ try:
     import frontmatter
 except ImportError:
     logger.warning('Galaxy dependencies not loaded')
-
-def get_commit_state(gitlab_api_url, proj_id, commit_sha, name):
-    gitlab_api_token = os.getenv("GITLAB_API_TOKEN")
-    if gitlab_api_token is None:
-        logger.warning("Gitlab api token not set. Skipping get commit state.")
-        return
-    
-    res = requests.get(
-        f'{gitlab_api_url}/projects/{proj_id}/repository/commits/{commit_sha}/statuses',
-        headers = {'PRIVATE-TOKEN': gitlab_api_token})
-    
-    this_states = [s['status'] for s in res.json() if s['name'] == name]
-
-    if len(this_states)==1:
-        logger.info(f'Pipeline {name} state is {this_states[0]}')
-        return this_states[0]
-
-
-def set_commit_state(gitlab_api_url, proj_id, commit_sha, name, state, target_url=None, description=None):
-    gitlab_api_token = os.getenv("GITLAB_API_TOKEN")
-    if gitlab_api_token is None:
-        logger.warning("Gitlab api token not set. Skipping commit state update.")
-        return
-    
-    current_state = get_commit_state(
-        gitlab_api_url=gitlab_api_url,
-        proj_id=proj_id,
-        commit_sha=commit_sha,
-        name = name
-    )
-
-    if current_state == state:
-        logger.info(f'Pipeline {name} state {state} is already set. Skipping.')
-        return
-    
-    params = {'name': name, 'state': state}
-    if target_url is not None: 
-        params['target_url'] = target_url
-    if description is not None:
-        params['description'] = description
-    res = requests.post(f'{gitlab_api_url}/projects/{proj_id}/statuses/{commit_sha}',
-                        params = params,
-                        headers = {'PRIVATE-TOKEN': gitlab_api_token})
-    if res.status_code >= 300:
-        logger.error('Error setting commit status: Code %s; Content %s', res.status_code,res.text)
-    return
 
 @click.group()
 @click.option('--debug', is_flag=True)
@@ -253,7 +207,8 @@ def update_workflow(last_commit,
                     gitlab_state_name_prefix="",
                     runtime_volume_config: dict|None = None,
                     email_notify_user: bool = True,
-                    email_notify_admin: bool = True):
+                    email_notify_admin: bool = True,
+                    do_git_report: bool = True):
     deployed_workflows = {}
     deployment_info = None
 
@@ -291,14 +246,15 @@ def update_workflow(last_commit,
             ) as repo:
                 # build
                 bstart = datetime.now()
-                set_commit_state(
-                    gitlab_api_url, 
-                    project['id'], 
-                    last_commit['id'], 
-                    gitlab_state_name_prefix+"MMODA: build",
-                    "running",
-                    description="ODA-bot is building a container"
-                    )
+                if do_git_report: 
+                    set_commit_state(
+                        gitlab_api_url, 
+                        project['id'], 
+                        last_commit['id'], 
+                        gitlab_state_name_prefix+"MMODA: build",
+                        "running",
+                        description="ODA-bot is building a container"
+                        )
                 try:
                     if build_engine == 'kaniko':
                         container_info = repo.build_with_kaniko(
@@ -317,14 +273,15 @@ def update_workflow(last_commit,
                         raise NotImplementedError(f'Unknown build engine: {build_engine}')
 
                 except:
-                    set_commit_state(
-                        gitlab_api_url, 
-                        project['id'], 
-                        last_commit['id'], 
-                        gitlab_state_name_prefix+"MMODA: build",
-                        "failed",
-                        description="ODA-bot unable to build the container. An e-mail with details has been sent."
-                        )
+                    if do_git_report:
+                        set_commit_state(
+                            gitlab_api_url, 
+                            project['id'], 
+                            last_commit['id'], 
+                            gitlab_state_name_prefix+"MMODA: build",
+                            "failed",
+                            description="ODA-bot unable to build the container. An e-mail with details has been sent."
+                            )
                     raise
                 else:
                     if container_info['image'].count('/') == 1:
@@ -332,28 +289,30 @@ def update_workflow(last_commit,
                         hub_url = f"https://hub.docker.com/r/{container_info['image'].split(':')[0]}"
                     else:
                         hub_url = None # no universal way to construct clickable url 
+                    if do_git_report:
+                        set_commit_state(
+                            gitlab_api_url,
+                            project["id"],
+                            last_commit["id"],
+                            gitlab_state_name_prefix + "MMODA: build",
+                            "success",
+                            description=(
+                                f"ODA-bot have successfully built the container in {(datetime.now() - bstart).seconds} seconds. "
+                                f"Image pushed to registry as {container_info['image']}"
+                            ),
+                            target_url=hub_url,
+                        )
+
+                # deploy
+                if do_git_report:
                     set_commit_state(
                         gitlab_api_url,
                         project["id"],
                         last_commit["id"],
-                        gitlab_state_name_prefix + "MMODA: build",
-                        "success",
-                        description=(
-                            f"ODA-bot have successfully built the container in {(datetime.now() - bstart).seconds} seconds. "
-                            f"Image pushed to registry as {container_info['image']}"
-                        ),
-                        target_url=hub_url,
+                        gitlab_state_name_prefix + "MMODA: deploy",
+                        "running",
+                        description="ODA-bot is deploying the workflow",
                     )
-
-                # deploy
-                set_commit_state(
-                    gitlab_api_url,
-                    project["id"],
-                    last_commit["id"],
-                    gitlab_state_name_prefix + "MMODA: deploy",
-                    "running",
-                    description="ODA-bot is deploying the workflow",
-                )
                 try:
                     workflow_name = (
                         project["name"].lower().replace(" ", "-").replace("_", "-")
@@ -375,24 +334,26 @@ def update_workflow(last_commit,
                     )
 
                 except:
-                    set_commit_state(
-                        gitlab_api_url,
-                        project["id"],
-                        last_commit["id"],
-                        gitlab_state_name_prefix + "MMODA: deploy",
-                        "failed",
-                        description="ODA-bot unable to deploy the workflow. An e-mail with details has been sent.",
-                    )
+                    if do_git_report:
+                        set_commit_state(
+                            gitlab_api_url,
+                            project["id"],
+                            last_commit["id"],
+                            gitlab_state_name_prefix + "MMODA: deploy",
+                            "failed",
+                            description="ODA-bot unable to deploy the workflow. An e-mail with details has been sent.",
+                        )
                     raise
                 else:
-                    set_commit_state(
-                        gitlab_api_url,
-                        project["id"],
-                        last_commit["id"],
-                        gitlab_state_name_prefix + "MMODA: deploy",
-                        "success",
-                        description=f"ODA-bot have successfully deployed {workflow_name} to {deployment_namespace} namespace",
-                    )
+                    if do_git_report:
+                        set_commit_state(
+                            gitlab_api_url,
+                            project["id"],
+                            last_commit["id"],
+                            gitlab_state_name_prefix + "MMODA: deploy",
+                            "success",
+                            description=f"ODA-bot have successfully deployed {workflow_name} to {deployment_namespace} namespace",
+                        )
 
         except ContainerBuildException as e:
             deployed_workflows[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at, 
@@ -464,12 +425,14 @@ def update_workflow(last_commit,
                 '''
 
             sparql_obj.insert(kg_record)
-            set_commit_state(gitlab_api_url, 
-                             project['id'], 
-                             last_commit['id'], 
-                             gitlab_state_name_prefix+"MMODA: register",
-                             "success",
-                             description=f"ODA-bot have successfully registered workflow in ODA KG")
+            if do_git_report:
+                set_commit_state(
+                    gitlab_api_url, 
+                    project['id'], 
+                    last_commit['id'], 
+                    gitlab_state_name_prefix+"MMODA: register",
+                    "success",
+                    description=f"ODA-bot have successfully registered workflow in ODA KG")
 
             deployed_workflows[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at, 
                                                                'last_deployment_status': 'success'}
@@ -521,6 +484,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
     email_notify_admin = obj['settings'].get('nb2workflow.notifications.email.notify_admin', True)
     admin_emails = obj['settings'].get('nb2workflow.notifications.email.admin_emails', [])
 
+    do_git_report = obj['settings'].get('nb2workflow.notifications.gitlab.enable', True)
     state_name_prefix = obj['settings'].get('nb2workflow.notifications.gitlab.state_name_prefix', '')
 
 
@@ -604,12 +568,14 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                 # TODO: make configurable; consider it to be on k8s volume
 
                                 if frontend_instruments_dir:
-                                    set_commit_state(gitlab_api_url, 
-                                                     project['id'], 
-                                                     last_commit['id'], 
-                                                     state_name_prefix+"MMODA: frontend_tab",
-                                                     "running",
-                                                     description="Generating frontend tab")
+                                    if do_git_report:
+                                        set_commit_state(
+                                            gitlab_api_url, 
+                                            project['id'], 
+                                            last_commit['id'], 
+                                            state_name_prefix+"MMODA: frontend_tab",
+                                            "running",
+                                            description="Generating frontend tab")
                                     try:
                                         acknowl = f'Service generated from <a href="{project["http_url_to_repo"]}" target="_blank">the repository</a>'
                                         res = requests.get(f'{gitlab_api_url}projects/{project["id"]}/repository/files/acknowledgements.md/raw?ref=master')
@@ -680,12 +646,14 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                         workflow_update_status[project['http_url_to_repo']]['last_deployment_status'] = 'success'
 
                                     except Exception as e:
-                                        set_commit_state(gitlab_api_url, 
-                                                         project['id'], 
-                                                         last_commit['id'], 
-                                                         state_name_prefix+"MMODA: frontend_tab",
-                                                         "failed",
-                                                         description="Failed generating frontend tab")
+                                        if do_git_report:
+                                            set_commit_state(
+                                                gitlab_api_url, 
+                                                project['id'], 
+                                                last_commit['id'], 
+                                                state_name_prefix+"MMODA: frontend_tab",
+                                                "failed",
+                                                description="Failed generating frontend tab")
 
                                         workflow_update_status[project['http_url_to_repo']]['last_deployment_status'] = 'failed'
                                         workflow_update_status[project['http_url_to_repo']]['stage_failed'] = 'tab'
@@ -711,13 +679,16 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                         logger.exception("exception while generating tab: %s", repr(e))
 
                                     else:
-                                        set_commit_state(gitlab_api_url, 
-                                                         project['id'], 
-                                                         last_commit['id'], 
-                                                         state_name_prefix+"MMODA: frontend_tab",
-                                                         "success",
-                                                         description="Frontend tab generated",
-                                                         target_url=frontend_url)
+                                        if do_git_report:
+                                            set_commit_state(
+                                                gitlab_api_url, 
+                                                project['id'], 
+                                                last_commit['id'], 
+                                                state_name_prefix+"MMODA: frontend_tab",
+                                                "success",
+                                                description="Frontend tab generated",
+                                                target_url=frontend_url)
+                                            
                                         to = last_commit['committer_email'] if email_notify_user else []
                                         bcc = admin_emails if email_notify_admin else []
                                         if to or bcc:
