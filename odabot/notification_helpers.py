@@ -75,45 +75,51 @@ def send_email(
 
 
 def get_commit_state(gitlab_api_url, proj_id, commit_sha, name):
-    gitlab_api_token = os.getenv("GITLAB_API_TOKEN")
-    if gitlab_api_token is None:
-        raise MissingEnvironmentVariable(f'GITLAB_API_TOKEN not set')
+    try:
+        gitlab_api_token = os.getenv("GITLAB_API_TOKEN")
+        if gitlab_api_token is None:
+            raise MissingEnvironmentVariable(f'GITLAB_API_TOKEN not set')
 
-    res = requests.get(
-        f'{gitlab_api_url}/projects/{proj_id}/repository/commits/{commit_sha}/statuses',
-        headers = {'PRIVATE-TOKEN': gitlab_api_token})
+        res = requests.get(
+            f'{gitlab_api_url}/projects/{proj_id}/repository/commits/{commit_sha}/statuses',
+            headers = {'PRIVATE-TOKEN': gitlab_api_token})
 
-    this_states = [s['status'] for s in res.json() if s['name'] == name]
+        this_states = [s['status'] for s in res.json() if s['name'] == name]
 
-    if len(this_states)==1:
-        logger.info(f'Pipeline {name} state is {this_states[0]}')
-        return this_states[0]
+        if len(this_states)==1:
+            logger.info(f'Pipeline {name} state is {this_states[0]}')
+            return this_states[0]
+    except Exception as e:
+        logger.exception(e)
 
 
 def set_commit_state(gitlab_api_url, proj_id, commit_sha, name, state, target_url=None, description=None):
-    gitlab_api_token = os.getenv("GITLAB_API_TOKEN", None)
-    if gitlab_api_token is None:
-        raise MissingEnvironmentVariable(f'GITLAB_API_TOKEN not set')
+    try:
+        gitlab_api_token = os.getenv("GITLAB_API_TOKEN", None)
+        if gitlab_api_token is None:
+            raise MissingEnvironmentVariable(f'GITLAB_API_TOKEN not set')
 
-    current_state = get_commit_state(
-        gitlab_api_url=gitlab_api_url,
-        proj_id=proj_id,
-        commit_sha=commit_sha,
-        name = name
-    )
+        current_state = get_commit_state(
+            gitlab_api_url=gitlab_api_url,
+            proj_id=proj_id,
+            commit_sha=commit_sha,
+            name = name
+        )
 
-    if current_state == state:
-        logger.info(f'Pipeline {name} state {state} is already set. Skipping.')
+        if current_state == state:
+            logger.info(f'Pipeline {name} state {state} is already set. Skipping.')
+            return
+
+        params = {'name': name, 'state': state}
+        if target_url is not None:
+            params['target_url'] = target_url
+        if description is not None:
+            params['description'] = description
+        res = requests.post(f'{gitlab_api_url}/projects/{proj_id}/statuses/{commit_sha}',
+                            params = params,
+                            headers = {'PRIVATE-TOKEN': gitlab_api_token})
+        if res.status_code >= 300:
+            logger.error('Error setting commit status: Code %s; Content %s', res.status_code,res.text)
         return
-
-    params = {'name': name, 'state': state}
-    if target_url is not None:
-        params['target_url'] = target_url
-    if description is not None:
-        params['description'] = description
-    res = requests.post(f'{gitlab_api_url}/projects/{proj_id}/statuses/{commit_sha}',
-                        params = params,
-                        headers = {'PRIVATE-TOKEN': gitlab_api_token})
-    if res.status_code >= 300:
-        logger.error('Error setting commit status: Code %s; Content %s', res.status_code,res.text)
-    return
+    except Exception as e:
+        logger.exception(e)
