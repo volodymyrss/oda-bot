@@ -24,6 +24,8 @@ from dynaconf.vendor.box import BoxList
 
 import sentry_sdk
 
+from odabot.email_helper import send_email
+
 logger = logging.getLogger()
 
 # will init if SENTRY_DSN is set
@@ -45,57 +47,6 @@ try:
     import frontmatter
 except ImportError:
     logger.warning('Galaxy dependencies not loaded')
-
-def send_email(_to, subject, text, attachments=None, extra_emails=[]):
-    if isinstance(_to, str):
-        _to = [_to]
-    try:
-        if os.getenv('EMAIL_SMTP_SERVER'):
-            _to.extend(extra_emails)
-            
-            import smtplib
-            from email.mime.text import MIMEText
-            from email.mime.multipart import MIMEMultipart
-            from email.mime.application import MIMEApplication            
-            
-            msg = MIMEMultipart()
-            part1 = MIMEText(text, "plain")
-            msg.attach(part1)
-            
-            if attachments is not None:    
-                if not isinstance(attachments, list): 
-                    attachments = [attachments]
-                for attachment in attachments:
-                    with open(attachment, 'rb') as fd:
-                        part = MIMEApplication(fd.read())
-                    part.add_header("Content-Disposition",
-                                    f"attachment; filename= {attachment.split('/')[-1]}")
-                    msg.attach(part)
-                    
-            msg['Subject'] = subject
-            msg['From'] = os.getenv('EMAIL_SMTP_USER')
-            msg['To'] = ', '.join(_to)
-            
-            with smtplib.SMTP_SSL(os.getenv('EMAIL_SMTP_SERVER')) as smtp:
-                smtp.login(os.getenv('EMAIL_SMTP_USER'), os.getenv('EMAIL_SMTP_PASSWORD'))
-                smtp.send_message(msg)
-                
-        else:
-            _to.extend(extra_emails)
-            r = requests.post(
-                "https://api.eu.mailgun.net/v3/in.odahub.io/messages",
-                data={
-                    "from": 'ODA Workflow Bot <oda-bot@in.odahub.io>',
-                    "to": _to,
-                    "subject": subject,
-                    "text": text
-                },
-                auth=('api', open(os.path.join(os.getenv('HOME', '/'), '.mailgun')).read().strip())
-            )    
-            logger.info('sending email: %s %s', r, r.text)
-    except Exception as e:
-        logger.exception('Exception while sending email: %s', e)
-
 
 def get_commit_state(gitlab_api_url, proj_id, commit_sha, name):
     gitlab_api_token = os.getenv("GITLAB_API_TOKEN")
@@ -300,7 +251,9 @@ def update_workflow(last_commit,
                     extra_emails=[],
                     creative_work_status="development",
                     gitlab_state_name_prefix="",
-                    runtime_volume_config: dict|None = None):
+                    runtime_volume_config: dict|None = None,
+                    email_notify_user: bool = True,
+                    email_notify_admin: bool = True):
     deployed_workflows = {}
     deployment_info = None
 
@@ -315,13 +268,21 @@ def update_workflow(last_commit,
 
     logger.info("validation_results: %s", validation_results)
     if len(validation_results) > 0:
-        send_email(last_commit['committer_email'], 
-                   f"[ODA-Workflow-Bot] did not manage to deploy {project['name']}", 
-                   ("Dear MMODA Workflow Developer\n\n"
-                   f"Good news! ODA bot thinks there is some potential for improvement of your project {project['name']}: " 
-                       f"{validation_results}"
-                       "\n\nSincerely, ODA Bot"
-                   ))
+        
+        to = last_commit['committer_email'] if email_notify_user else []
+        bcc = extra_emails if email_notify_admin else []
+
+        if to or bcc:
+            send_email(to, 
+                f"[ODA-Workflow-Bot] did not manage to deploy {project['name']}", 
+                ("Dear MMODA Workflow Developer\n\n"
+                f"Good news! ODA bot thinks there is some potential for improvement of your project {project['name']}: " 
+                    f"{validation_results}"
+                    "\n\nSincerely, ODA Bot"
+                ),
+                bcc=bcc
+                )
+
     else:
         try:
             with NBRepo(
@@ -455,13 +416,17 @@ def update_workflow(last_commit,
                     attachments.append(os.path.join(tmpdir, 'Dockerfile'))
                     with open(attachments[-1], 'wt') as fd:
                         fd.write(dockerfile)
-                send_email(last_commit['committer_email'], 
-                           f"[ODA-Workflow-Bot] unfortunately did NOT manage to deploy {project['name']}!", 
-                           ("Dear MMODA Workflow Developer\n\n"
-                           "ODA-Workflow-Bot just tried to build the container for your workflow following some change, but did not manage!\n\n"
-                           "Please check attached files for more info.\n"
-                           "\n\nSincerely, ODA Bot"
-                           ), attachments, extra_emails=extra_emails)
+
+                to = last_commit['committer_email'] if email_notify_user else []
+                bcc = extra_emails if email_notify_admin else []                 
+                if to or bcc:
+                    send_email(to, 
+                            f"[ODA-Workflow-Bot] unfortunately did NOT manage to deploy {project['name']}!", 
+                            ("Dear MMODA Workflow Developer\n\n"
+                            "ODA-Workflow-Bot just tried to build the container for your workflow following some change, but did not manage!\n\n"
+                            "Please check attached files for more info.\n"
+                            "\n\nSincerely, ODA Bot"
+                            ), attachments, bcc=bcc)
 
         except Exception as e:
             deployed_workflows[project['http_url_to_repo']] = {'last_commit_created_at': last_commit_created_at, 
@@ -470,16 +435,22 @@ def update_workflow(last_commit,
 
             logger.exception('exception deploying %s! %s', project['name'], repr(e))
 
-            send_email(last_commit['committer_email'], 
-                       f"[ODA-Workflow-Bot] unfortunately did NOT manage to deploy {project['name']}!", 
-                       ("Dear MMODA Workflow Developer\n\n"
-                       "ODA-Workflow-Bot just tried to deploy your workflow following some change, but did not manage due to an internal error.\n"
-                       "We are working on fixing the issue.\n"
-                       "\n\nSincerely, ODA Bot"
-                       ))
-            send_email(extra_emails,
-                       f"[ODA-Workflow-Bot] internal error while deploying {project['name']}",
-                       traceback.format_exc())
+            to = last_commit['committer_email'] if email_notify_user else []
+            if to:
+                send_email(
+                    to, 
+                    f"[ODA-Workflow-Bot] unfortunately did NOT manage to deploy {project['name']}!", 
+                    ("Dear MMODA Workflow Developer\n\n"
+                    "ODA-Workflow-Bot just tried to deploy your workflow following some change, but did not manage due to an internal error.\n"
+                    "We are working on fixing the issue.\n"
+                    "\n\nSincerely, ODA Bot"
+                    ))    
+            to = extra_emails if email_notify_admin else []                 
+            if to:
+                send_email(
+                    extra_emails,
+                    f"[ODA-Workflow-Bot] internal error while deploying {project['name']}",
+                    traceback.format_exc())
 
         else:
             kg_record = f'''
@@ -536,8 +507,6 @@ def update_workflows(obj, dry_run, force, loop, pattern):
 
     build_engine = obj['settings'].get('nb2workflow.build_engine', 'docker')
 
-    admin_emails = obj['settings'].get('admin_emails', [])
-
     gitlab_api_url = obj['settings'].get('gitlab.api_url', "https://gitlab.renkulab.io/api/v4/")
     gitlab_gid = obj['settings'].get('gitlab.gid', 5606)
 
@@ -546,9 +515,14 @@ def update_workflows(obj, dry_run, force, loop, pattern):
     trigger_topics_dev = obj['settings'].get('nb2workflow.trigger_topics.development', ['live-workflow'])
     trigger_topics_public = obj['settings'].get('nb2workflow.trigger_topics.public', ['live-workflow-public'])
 
-    state_name_prefix = obj['settings'].get('nb2workflow.state_name_prefix', '')
-
     runtime_volume_config = obj['settings'].get('nb2workflow.runtime_volume_config', None)
+    
+    email_notify_user = obj['settings'].get('nb2workflow.notifications.email.notify_user', True)
+    email_notify_admin = obj['settings'].get('nb2workflow.notifications.email.notify_admin', True)
+    admin_emails = obj['settings'].get('nb2workflow.notifications.email.admin_emails', [])
+
+    state_name_prefix = obj['settings'].get('nb2workflow.notifications.gitlab.state_name_prefix', '')
+
 
     if obj['settings'].get('nb2workflow.state_storage.type', 'yaml') == 'yaml':
         state_storage = obj['settings'].get('nb2workflow.state_storage.path', 'oda-bot-runtime-workflows.yaml')
@@ -716,18 +690,24 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                         workflow_update_status[project['http_url_to_repo']]['last_deployment_status'] = 'failed'
                                         workflow_update_status[project['http_url_to_repo']]['stage_failed'] = 'tab'
 
-                                        send_email(last_commit['committer_email'], 
-                                                    f"[ODA-Workflow-Bot] failed to create the frontend tab for {project['name']}", 
-                                                    ("Dear MMODA Workflow Developer\n\n"
-                                                    "ODA-Workflow-Bot successfully deployed the backend component for your workflow following some change,\n"
-                                                    "but unfortunately did NOT manage to create the frontend tab!"
-                                                    "We are working on fixing the issue.\n"
-                                                    "\n\nSincerely, ODA Bot"
-                                                    ))
-                                        send_email(admin_emails, # email of admin will be attached
-                                                    f"[ODA-Workflow-Bot] error creating frontend tab for {project['name']}",
-                                                    traceback.format_exc())
-                                        # TODO: sentry
+                                        to = last_commit['committer_email'] if email_notify_user else []
+                                        if to:
+                                            send_email(
+                                                to, 
+                                                f"[ODA-Workflow-Bot] failed to create the frontend tab for {project['name']}", 
+                                                ("Dear MMODA Workflow Developer\n\n"
+                                                "ODA-Workflow-Bot successfully deployed the backend component for your workflow following some change,\n"
+                                                "but unfortunately did NOT manage to create the frontend tab!"
+                                                "We are working on fixing the issue.\n"
+                                                "\n\nSincerely, ODA Bot"
+                                                ))
+                                        to = admin_emails if email_notify_admin else []
+                                        if to:
+                                            send_email(
+                                                admin_emails, 
+                                                f"[ODA-Workflow-Bot] error creating frontend tab for {project['name']}",
+                                                traceback.format_exc())
+                                        
                                         logger.exception("exception while generating tab: %s", repr(e))
 
                                     else:
@@ -738,8 +718,11 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                          "success",
                                                          description="Frontend tab generated",
                                                          target_url=frontend_url)
-
-                                        send_email(last_commit['committer_email'], 
+                                        to = last_commit['committer_email'] if email_notify_user else []
+                                        bcc = admin_emails if email_notify_admin else []
+                                        if to or bcc:
+                                            send_email(
+                                                to, 
                                                 f"[ODA-Workflow-Bot] deployed {project['name']}", 
                                                 ("Dear MMODA Workflow Developer\n\n"
                                                 "ODA-Workflow-Bot just deployed your workflow, and passed basic validation.\n"
@@ -748,7 +731,7 @@ def update_workflows(obj, dry_run, force, loop, pattern):
                                                 f"{json.dumps(deployment_info, indent=4)}\n\n"
                                                 "You can now try using accessing your workflow, see https://odahub.io/docs/guide-development/#optional-try-a-test-service\n\n"
                                                 "\n\nSincerely, ODA Bot"
-                                                ), extra_emails = admin_emails)
+                                                ), bcc = bcc)
 
                             deployed_workflows.update(workflow_update_status)
                             oda_bot_runtime['deployed_workflows'] = deployed_workflows
