@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from odabot.cli import logger
+import logging
 import requests
 import os
 import smtplib
@@ -8,7 +8,10 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
 
+logger = logging.getLogger()
+
 class MissingEnvironmentVariable(Exception): ...
+
 
 def send_email(
     to: str | list[str], 
