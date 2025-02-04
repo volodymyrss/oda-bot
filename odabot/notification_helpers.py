@@ -52,12 +52,20 @@ def send_email(
             if cc: msg['Cc'] = ', '.join(cc) if isinstance(cc, list) else cc
             if bcc: msg['Bcc'] = ', '.join(bcc) if isinstance(bcc, list) else bcc
 
-            if os.getenv('EMAIL_SMTP_ENCRYPTION') == 'SSL':
+            smtp_encryption = os.getenv('EMAIL_SMTP_ENCRYPTION')
+            port_defined = os.getenv('EMAIL_SMTP_PORT')
+            if smtp_encryption is None:
+                if port_defined == '465': 
+                    smtp_encryption = 'SSL'
+                elif port_defined == '587':
+                    smtp_encryption = 'TLS'
+
+            if smtp_encryption == 'SSL':
                 with smtplib.SMTP_SSL(os.environ['EMAIL_SMTP_SERVER'],
                                       port=int(os.getenv('EMAIL_SMTP_PORT', 465))) as smtp:
                     smtp.login(os.environ['EMAIL_SMTP_USER'], os.environ['EMAIL_SMTP_PASSWORD'])
                     smtp.send_message(msg)
-            elif os.getenv('EMAIL_SMTP_ENCRYPTION') == 'TLS':
+            elif smtp_encryption == 'TLS':
                 with smtplib.SMTP(os.environ['EMAIL_SMTP_SERVER'],
                                   port=int(os.getenv('EMAIL_SMTP_PORT', 587))) as smtp:
                     smtp.starttls()
