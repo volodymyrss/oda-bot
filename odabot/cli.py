@@ -1109,7 +1109,7 @@ def make_galaxy_tools(obj, dry_run, loop, force, pattern):
                                             proj_id=project['id'],
                                             commit_sha=last_commit['id'],
                                             name='Galaxy tool',
-                                            state='skipped',
+                                            state='success', # 'skipped' is not supported in GL 17.5 used by renku,
                                             description='No updates in Galaxy tool',
                                             **kwargs
                                             )                                        
